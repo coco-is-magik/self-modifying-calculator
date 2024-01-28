@@ -1,12 +1,14 @@
 # Description
-This is a self-modifying, self-optimizing command line calculator written in common lisp
-
+This is a self-modifying, self-optimizing command line calculator written in common lisp<br>
+<br>
 ## Usage
-clisp calculator.lisp operation num1 num2<br><br>
-operation arguments:<br>
-basic math: + - * /<br><br>
-num1 and num2 are both integers
-
+clisp calculator.lsp "[num1][operation][num2]"<br>
+example commands:<br>
+clisp calculator.lsp 5+7<br>
+clisp calculator.lsp 8-4<br>
+clisp calculator.lsp 4*2<br>
+clisp calculator.lsp 10/5<br>
+<br>
 ## TODO List
 - non-integer support
 - Parantheses and exponents
@@ -20,3 +22,4 @@ num1 and num2 are both integers
 - algebraic equations
 - discrete mathematics functions
 - geometry tools
+<br>
