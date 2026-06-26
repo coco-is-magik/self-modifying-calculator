@@ -126,9 +126,10 @@ The project is organized into five implementation phases:
 ## Installation
 
 ### Prerequisites
-- **SBCL** (Steel Bank Common Lisp) — recommended runtime
-- **Quicklisp** — for dependency management
-- **CLISP** — for backward compatibility with the existing `calculator.lsp`
+- **SBCL** (Steel Bank Common Lisp) — required runtime
+- **CLISP** — optional, for backward compatibility with the existing `calculator.lsp`
+
+SBCL is required because the project relies on native compilation and runtime code generation (`compile`, `fdefinition`) to implement self-modification.
 
 ### Setup
 ```bash
@@ -137,12 +138,35 @@ cd self-modifying-calculator
 ```
 
 ## Usage
-```bash
-# Current CLI (basic arithmetic):
-clisp calculator.lsp 5+7
 
-# Future CLI (post-Phase 1):
-sbcl --load main.lisp --eval '(main)'
+### SBCL (new implementation)
+```bash
+# Using the run.sh wrapper:
+./run.sh "2+3*4"
+
+# Or invoke directly with ASDF:
+cd /bigdisk/programming/self-modifying-calculator
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(smc:main '(\"2+3*4\"))" \
+  --eval "(sb-ext:exit)"
+
+# Run the test suite:
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(load \"tests/test-runner.lisp\")" \
+  --eval "(load \"tests/core/test-ast.lisp\")" \
+  --eval "(load \"tests/core/test-parser.lisp\")" \
+  --eval "(load \"tests/core/test-evaluator.lisp\")" \
+  --eval "(smc:run-all-tests)" \
+  --eval "(sb-ext:exit)"
+```
+
+### CLISP (legacy backward-compatible calculator)
+```bash
+clisp calculator.lsp 5+7
 ```
 
 ---
