@@ -55,7 +55,10 @@
     (evaluate-node-cached node)))
 
 (defun evaluate-node-cached (node &optional (cache *global-cache*))
-  "Evaluate a single AST node using CACHE. Caches whole and sub-expression results."
+  "Evaluate a single AST node using CACHE. Caches whole and sub-expression results.
+   The compiled dispatch is currently disabled for large caches because
+   generating a function with tens of thousands of cond clauses causes stack
+   overflow during compilation. The EQ hash table is fast enough on its own."
   (multiple-value-bind (value found) (cache-get cache node)
     (if found
         (progn
@@ -69,19 +72,19 @@
 
 (defun evaluate-node-uncached (node cache)
   "Evaluate NODE without looking it up in CACHE, but still using cache for sub-expressions.
-   Rewrites NODE with cached sub-expressions before recursing."
-  (let ((rewritten (rewrite-with-cache node cache)))
-    (cond
-      ((constant-node-p rewritten)
-       (constant-value rewritten))
-      ((variable-node-p rewritten)
-       (variable-value (variable-name rewritten)))
-      ((consp rewritten)
-       (let ((op (car rewritten))
-             (args (cdr rewritten)))
-         ;; Recursively evaluate arguments with caching, then apply operator.
-         (apply (operator-function op) (mapcar (lambda (arg) (evaluate-node-cached arg cache)) args))))
-      (t (error "Invalid AST node: ~A" node)))))
+   Each child is evaluated via evaluate-node-cached, so cached sub-trees are
+   still reused without building an intermediate rewritten AST."
+  (cond
+    ((constant-node-p node)
+     (constant-value node))
+    ((variable-node-p node)
+     (variable-value (variable-name node)))
+    ((consp node)
+     (let ((op (car node))
+           (args (cdr node)))
+       ;; Recursively evaluate arguments with caching, then apply operator.
+       (apply (operator-function op) (mapcar (lambda (arg) (evaluate-node-cached arg cache)) args))))
+    (t (error "Invalid AST node: ~A" node))))
 
 (defun evaluate-node (node)
   "Evaluate a single AST node without caching. Kept for backward compatibility and testing."

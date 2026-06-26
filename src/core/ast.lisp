@@ -8,11 +8,23 @@
 
 (in-package :self-modifying-calculator)
 
+;;; Canonical AST interning
+
+(defparameter *ast-intern-table* (make-hash-table :test 'equal)
+  "Global table that maps AST structure to a canonical AST object.
+   Using canonical objects allows EQ-based cache lookups instead of EQUAL.")
+
+(defun intern-ast (node)
+  "Return the canonical AST object equal to NODE. If none exists, store NODE
+   and return it."
+  (or (gethash node *ast-intern-table*)
+      (setf (gethash node *ast-intern-table*) node)))
+
 ;;; Constructors and accessors
 
 (defun constant-node (value)
   "Create a constant AST node."
-  (list :constant value))
+  (intern-ast (list :constant value)))
 
 (defun constant-node-p (node)
   (and (consp node) (eq (car node) :constant)))
@@ -22,7 +34,7 @@
 
 (defun variable-node (name)
   "Create a variable AST node."
-  (list :variable name))
+  (intern-ast (list :variable name)))
 
 (defun variable-node-p (node)
   (and (consp node) (eq (car node) :variable)))
@@ -31,8 +43,18 @@
   (second node))
 
 (defun make-ast (op &rest args)
-  "Create an operator AST node."
-  (cons op args))
+  "Create an operator AST node. Raw numbers are wrapped in constant nodes
+   for convenience."
+  (intern-ast (cons op (mapcar (lambda (arg)
+                                 (if (numberp arg)
+                                     (constant-node arg)
+                                     arg))
+                               args))))
+
+(defun clear-ast-intern-table ()
+  "Clear the canonical AST intern table."
+  (clrhash *ast-intern-table*)
+  nil)
 
 (defun ast-p (node)
   "Return true if NODE is an AST node (constant, variable, or operator)."

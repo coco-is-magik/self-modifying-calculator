@@ -9,13 +9,34 @@
 
 (defstruct (cache (:constructor %make-cache))
   "Cache structure holding a hash table of AST -> value mappings."
-  (table (make-hash-table :test 'equal) :type hash-table)
+  (table (make-hash-table :test 'eq) :type hash-table)
   (hits 0 :type integer)
-  (misses 0 :type integer))
+  (misses 0 :type integer)
+  (compiled-lookup nil)         ; compiled (lambda (node) ...) or nil
+  (compiled-lookup-dirty t)     ; t when table has changed since last compile
+  (compile-threshold 20)        ; only compile when cache has >= this many entries
+  (last-compiled-size 0))       ; cache size at last compile; recompile when doubled
 
 (defun make-cache ()
   "Create a fresh, empty cache."
   (%make-cache))
+
+(defun cache-needs-recompile-p (cache)
+  "Return true if the cache's compiled lookup is stale and should be regenerated.
+   Recompile when the cache first reaches the threshold, or when it has doubled
+   in size since the last compilation."
+  (let ((size (cache-size cache))
+        (threshold (cache-compile-threshold cache))
+        (last-size (cache-last-compiled-size cache)))
+    (and (>= size threshold)
+         (cache-compiled-lookup-dirty cache)
+         (or (zerop last-size)
+             (>= size (* 2 last-size))))))
+
+(defun mark-cache-compiled (cache)
+  "Record that the cache has just been compiled at its current size."
+  (setf (cache-compiled-lookup-dirty cache) nil)
+  (setf (cache-last-compiled-size cache) (cache-size cache)))
 
 (defun cache-get (cache key)
   "Lookup KEY in CACHE. Returns (values value found-p)."
@@ -24,9 +45,13 @@
       (values value found))))
 
 (defun cache-set (cache key value)
-  "Store VALUE for KEY in CACHE. Only ground expressions are cached."
-  (when (ast-ground-p key)
-    (setf (gethash key (cache-table cache)) value)))
+  "Store VALUE for KEY in CACHE. Only ground expressions are cached.
+   KEY is interned to ensure EQ-based cache lookups work correctly."
+  (let ((key (intern-ast key)))
+    (when (ast-ground-p key)
+      (setf (gethash key (cache-table cache)) value)
+      (setf (cache-compiled-lookup-dirty cache) t)
+      value)))
 
 (defun cache-contains-p (cache key)
   "Return true if CACHE contains KEY."
