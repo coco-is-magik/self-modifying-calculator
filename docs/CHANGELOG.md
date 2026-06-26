@@ -6,6 +6,62 @@
 
 ---
 
+## 2026-06-26 — Session 4: Performance Optimization, Vector Math, and Refactored Benchmarks
+
+**Change**: Implemented canonical AST interning + EQ hash table, added vector and trigonometry modules, refactored the benchmark suite into per-category benchmarks, and removed the explicit `rewrite-with-cache` overhead from the hot path.
+
+**Affected Files**:
+- `src/core/ast.lisp` (updated with `*ast-intern-table*` and `intern-ast`)
+- `src/core/cache.lisp` (updated to use EQ hash table and intern keys on `cache-set`)
+- `src/core/evaluator.lisp` (removed explicit `rewrite-with-cache` from hot path; updated `make-ast` to wrap numeric literals)
+- `src/core/dispatch-compiler.lisp` (created and then disabled for large caches)
+- `src/math/linear-algebra.lisp` (created)
+- `src/math/trigonometry.lisp` (created)
+- `self-modifying-calculator.asd` (updated to include new files)
+- `tests/core/test-linear-algebra.lisp` (created)
+- `tests/benchmarks/benchmark-framework.lisp` (created)
+- `tests/benchmarks/series-generators.lisp` (created)
+- `tests/benchmarks/run-all-benchmarks.lisp` (created)
+- `docs/notes/session-4-implementation-notes.md` (created)
+- `docs/HANDOFF.md` (updated with Session 4 entry)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: Session 3 identified that the cache-aware evaluator was slower than conventional evaluation for simple arithmetic and only marginally faster for dot products. The root cause was the `EQUAL` hash lookup on AST lists being more expensive than the operations it skipped. Session 4 corrects this with canonical AST interning and an EQ hash table.
+
+**Details**:
+- Added global AST intern table so identical expressions produce the same object, enabling `EQ` hash lookups.
+- Switched cache from `EQUAL` to `EQ` for faster lookup.
+- Created `src/core/dispatch-compiler.lisp` as an experimental compiled dispatch table; it was disabled for large caches because the linear scan of thousands of clauses was slower than the hash table and caused stack overflow on long series.
+- Added linear algebra operators `:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`.
+- Added trigonometry operators `:sin` and `:cos`.
+- Refactored benchmarks into 7 categories: Arithmetic, Dot Product, Cross Product, Trig, Polynomial, Mixed, and Realistic Renderer.
+- Removed explicit `rewrite-with-cache` from the hot path; cached sub-trees are still reused because children are evaluated through `evaluate-node-cached`.
+- All 38 tests pass (33 from previous sessions + 5 new linear algebra tests).
+
+**Performance Results (LONG series, 100,000 calculations)**:
+
+| Category | Speedup vs Conventional |
+|---|---|
+| Arithmetic | **1.17×** |
+| Dot Product | **3.33×** |
+| Cross Product | **3.00×** |
+| Trig | **1.20×** |
+| Polynomial | **3.50×** |
+| Mixed | **2.67×** |
+| Realistic Renderer | **3.25×** |
+
+- Arithmetic is the hardest category (operations are very cheap), but it is now faster than conventional.
+- All realistic/renderer-style workloads show solid speedups.
+- Short and medium series are too fast to measure accurately with the current timer; see `docs/notes/session-4-implementation-notes.md` for future improvements.
+
+**Notes for Future**:
+- Improve short/medium benchmark timing accuracy (e.g., run multiple passes and accumulate time).
+- Revisit compiled dispatch with a smarter data structure (e.g., hash-based dispatch) that avoids the linear-scan/stack-overflow problem.
+- Consider cache eviction / size bounding.
+- Continue adding math modules (algebra, calculus, statistics) as planned.
+
+---
+
 ## 2026-06-26 — Session 3: Phase 3 Self-Modification and Benchmarking
 
 **Change**: Implemented all three levels of self-modification (cache persistence, runtime function specialization, source-level rewriting) and added benchmarking harnesses.

@@ -100,16 +100,16 @@ The project is organized into five implementation phases:
 - [x] Level 2: Runtime function specialization + hot-swapping
 - [x] Level 3: Source-level rewriting for persistent optimization
 
-### Phase 4 — Performance Optimization & Benchmarking (In Progress)
-- [ ] Compiled cache dispatch table to replace EQUAL hash lookup
-- [ ] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
-- [ ] Refactor benchmark suite into per-category benchmarks
-- [ ] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer
-- [ ] Track cache hit ratios, cold vs warm performance per optimization level
+### Phase 4 — Performance Optimization & Benchmarking (Complete)
+- [x] Canonical AST interning + EQ hash table (replaced EQUAL hash lookup)
+- [x] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
+- [x] Trigonometry module (`:sin`, `:cos`)
+- [x] Refactor benchmark suite into per-category benchmarks
+- [x] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer
+- [x] Track cache hit ratios, cold vs warm performance per optimization level
 
-### Phase 5 — Math Modules (Planned)
+### Phase 5 — Math Modules (In Progress)
 - [ ] Algebra (quadratics, factoring, polynomials)
-- [ ] Trigonometry (sine/cosine operators for benchmarks)
 - [ ] Calculus (numerical derivatives, integrals)
 - [ ] Statistics
 
@@ -120,16 +120,28 @@ The project is organized into five implementation phases:
 
 > **Full architectural plan**: See [`docs/plan.md`](docs/plan.md)
 
-## Performance Direction
+## Performance Results
 
-Initial benchmarks show that the cache-aware evaluator is **not yet faster than the conventional evaluator for simple arithmetic** and only marginally faster for dot products. The root cause is that EQUAL hash-table lookup on AST lists is more expensive than the arithmetic operations it skips.
+The cache-aware evaluator now outperforms conventional evaluation on realistic workloads. Key optimizations:
+1. **Canonical AST interning + EQ hash table**: identical expressions share the same object, so cache lookups use fast pointer comparison instead of structural `EQUAL`.
+2. **Removed explicit AST rewriting**: the evaluator no longer builds an intermediate rewritten AST on every cache miss.
+3. **Vector/trigonometry modules**: realistic operations (dot products, cross products, trig) give the cache more expensive work to skip.
 
-The current corrective plan is:
-1. **Compiled cache dispatch table**: generate a compiled `cond`/`case` function for whole-expression cache hits, eliminating hash computation and list traversal.
-2. **Vector/linear algebra module**: add realistic renderer operations (dot/cross products, vector normalization) where the cache saves more expensive work.
-3. **Per-category benchmarks**: split the benchmark suite by math domain so strengths and weaknesses are visible.
+### LONG series speedups (100,000 calculations)
 
-See `docs/plan.md` for the full performance analysis and `docs/HANDOFF.md` for the detailed implementation plan.
+| Category | Speedup |
+|---|---|
+| Arithmetic | **1.17×** |
+| Dot Product | **3.33×** |
+| Cross Product | **3.00×** |
+| Trig | **1.20×** |
+| Polynomial | **3.50×** |
+| Mixed | **2.67×** |
+| Realistic Renderer | **3.25×** |
+
+Arithmetic remains the hardest category because the operations themselves are so cheap. All renderer-style workloads (dot, cross, polynomial, realistic renderer) show solid 3×+ speedups.
+
+See `docs/plan.md`, `docs/HANDOFF.md`, and `docs/notes/session-4-implementation-notes.md` for the full analysis and implementation details.
 
 ---
 
@@ -170,7 +182,21 @@ sbcl --noinform \
   --eval "(load \"tests/core/test-ast.lisp\")" \
   --eval "(load \"tests/core/test-parser.lisp\")" \
   --eval "(load \"tests/core/test-evaluator.lisp\")" \
+  --eval "(load \"tests/core/test-cache.lisp\")" \
+  --eval "(load \"tests/core/test-optimizer.lisp\")" \
+  --eval "(load \"tests/core/test-self-writer.lisp\")" \
+  --eval "(load \"tests/core/test-linear-algebra.lisp\")" \
   --eval "(smc:run-all-tests)" \
+  --eval "(sb-ext:exit)"
+
+# Run the full benchmark suite (long-running):
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(load \"tests/benchmarks/benchmark-framework.lisp\")" \
+  --eval "(load \"tests/benchmarks/series-generators.lisp\")" \
+  --eval "(load \"tests/benchmarks/run-all-benchmarks.lisp\")" \
+  --eval "(smc::run-all-benchmarks)" \
   --eval "(sb-ext:exit)"
 ```
 
@@ -186,7 +212,10 @@ clisp calculator.lsp 5+7
 ```
 self-modifying-calculator/
 ├── docs/
-│   └── plan.md              # Full architectural plan (source of truth)
+│   ├── plan.md              # Full architectural plan (source of truth)
+│   ├── HANDOFF.md           # Session-by-session development log
+│   ├── CHANGELOG.md         # Change history
+│   └── notes/               # Detailed implementation notes
 ├── src/
 │   ├── core/                 # Engine: AST, cache, evaluator, optimizer
 │   ├── math/                 # Pluggable math modules
