@@ -9,6 +9,8 @@
   :serial   t
   :components ((:file "src/core/package")
                (:file "src/core/ast")
+               (:file "src/core/cache")
+               (:file "src/core/matcher")
                (:file "src/core/evaluator")
                (:file "src/interface/parser")
                (:file "src/math/arithmetic")

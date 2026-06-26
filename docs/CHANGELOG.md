@@ -6,6 +6,32 @@
 
 ---
 
+## 2026-06-26 — Session 2: Phase 2 Caching Engine Implemented
+
+**Change**: Implemented the hierarchical expression cache, matcher, and cache-aware evaluator.
+
+**Affected Files**:
+- `src/core/cache.lisp` (created)
+- `src/core/matcher.lisp` (created)
+- `src/core/evaluator.lisp` (updated with cache-aware evaluation)
+- `self-modifying-calculator.asd` (updated to include new files)
+- `tests/core/test-cache.lisp` (created)
+- `docs/HANDOFF.md` (updated with Session 2 entry)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: Caching is the core optimization mechanism for the self-modifying calculator. Hierarchical caching allows the system to reuse both whole expressions and their sub-expressions, directly supporting the renderer and quadratic use cases described in the plan.
+
+**Details**:
+- Added `cache` struct with EQUAL hash table, hit/miss counters, and statistics
+- Added `rewrite-with-cache` to replace cached sub-trees with constant nodes
+- Integrated cache into the evaluator via `evaluate-node-cached` and `evaluate-node-uncached`
+- Prevented caching of expressions containing variables (avoiding incorrect reuse across different variable bindings)
+- Added 5 cache tests covering cache operations, variable exclusion, repeated evaluation, sub-expression reuse, and statistics
+
+**Notes for Future**: Phase 3 should add cache persistence across sessions and runtime function specialization. The current cache is in-memory only and resets when the SBCL process exits.
+
+---
+
 ## 2026-06-26 — Session 1: Phase 1 Foundation Implemented
 
 **Change**: Implemented the foundational SBCL/ASDF project structure, AST representation, parser, evaluator, arithmetic module, CLI wrapper, and a dependency-free test suite.

@@ -45,7 +45,7 @@
 - Created the full source tree under `src/` and test tree under `tests/`
 - Implemented `src/core/package.lisp` with the `self-modifying-calculator` (nickname `smc`) package
 - Implemented `src/core/ast.lisp` for AST nodes (`:constant`, `:variable`, operator nodes), traversal, and utilities
-- Implemented `src/core/evaluator.lisp` with operator registry, variable environment, and recursive AST evaluation
+- Implemented `src/core/evaluator.lisp` with operator registry, variable environment, and recursive evaluator
 - Implemented `src/interface/parser.lisp` with tokenizer and recursive-descent parser supporting `+ - * / ^`, precedence, parentheses, and floats
 - Implemented `src/math/arithmetic.lisp` as the first pluggable math module
 - Implemented `src/main.lisp` as the entry point and `run-calculator` helper
@@ -54,7 +54,7 @@
 - Created a lightweight, dependency-free test runner in `tests/test-runner.lisp`
 - Added core tests: `tests/core/test-ast.lisp`, `tests/core/test-parser.lisp`, `tests/core/test-evaluator.lisp`
 - Updated `README.md` with SBCL requirement, new usage examples, and test commands
-- Updated `docs/CHANGELOG.md` with Session 1 entries
+- Updated `docs/CHANGELOG.md` with Session 1 entry
 
 **Rationale**: Phase 1 establishes the foundation the rest of the project depends on. Without a working AST, parser, evaluator, and module system, the caching and self-modification layers cannot be built. The dependency-free test runner avoids the need for Quicklisp while still providing automated verification.
 
@@ -77,6 +77,54 @@
 - Implement a cache-aware evaluator that checks the cache before recursing into sub-trees
 - Add tests verifying that repeated identical calculations return cached results
 - Ensure cache works correctly with the existing AST/parser/evaluator stack
+- Record all work in this handoff and the changelog
+
+---
+
+## Session 2 — Phase 2 Caching Engine
+
+**Date**: 2026-06-26
+
+**Completed**:
+- Implemented `src/core/cache.lisp` with:
+  - `cache` struct using an EQUAL hash table (AST keys are structural)
+  - `cache-get`, `cache-set`, `cache-contains-p`, `cache-clear`, `cache-size`, `cache-statistics`
+  - `ast-ground-p` to prevent caching of expressions containing variables
+  - `*global-cache*` default cache instance
+- Implemented `src/core/matcher.lisp` with `rewrite-with-cache` and `rewrite-with-cache-until-stable`
+- Updated `src/core/evaluator.lisp` to add a cache-aware evaluation path:
+  - `evaluate` now accepts a `:cache` keyword argument
+  - `evaluate-node-cached` checks the cache before recursing, records hits/misses, and stores results
+  - `evaluate-node-uncached` rewrites the node with cached sub-expressions before evaluating
+  - Kept `evaluate-node` as a non-caching fallback for compatibility
+- Updated `self-modifying-calculator.asd` to load `cache.lisp` and `matcher.lisp`
+- Added `tests/core/test-cache.lisp` with 5 test groups covering cache operations, variable exclusion, repeated evaluation, sub-expression reuse, and statistics
+- Updated `docs/CHANGELOG.md` with Session 2 entry
+
+**Rationale**: The caching engine is the first step of the self-modifying optimization pipeline. Hierarchical caching (whole + sub-expression) enables the partial reuse that the project targets, especially for repeated similar calculations like dot products and quadratic factors.
+
+**How the Cache Works**:
+1. Every AST node is checked against the cache before evaluation.
+2. If found, the cached value is returned and the hit counter is incremented.
+3. If not found, the node is rewritten by replacing any cached sub-trees with constant nodes.
+4. The rewritten node is evaluated recursively; each sub-result is cached as it is computed.
+5. The final result for the original node is cached.
+
+**Current State**:
+- Phase 2 is complete and integrated with Phase 1
+- All 29 tests pass (24 from Phase 1 + 5 new cache tests)
+- The cache-aware evaluator correctly reuses sub-expressions (e.g., `(2+3)` is cached once and reused in `(2+3)*4` and `(2+3)*5`)
+
+**Blockers / Known Limitations**:
+- The CLI (`run.sh`) is stateless per invocation, so the in-memory cache does not persist across separate command-line runs. Caching is currently effective only within a single SBCL session or programmatic loop.
+- Persistent cache (Level 1 across sessions) and source-level rewriting (Level 3) are not yet implemented.
+
+**Next Steps** (for Session 3):
+- Begin Phase 3: Self-Modification
+- Implement Level 1 fully: optionally persist the cache to `cache/cache.sexp` on exit and reload on startup
+- Implement Level 2: runtime function specialization (generate specialized operator functions for frequently seen operand pairs) and hot-swap via `fdefinition`
+- Implement Level 3: serialize the accumulated cache into source literals that are compiled in on next load
+- Add a benchmark to compare cached vs uncached evaluation and measure speedup
 - Record all work in this handoff and the changelog
 
 ---

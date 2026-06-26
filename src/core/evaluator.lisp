@@ -35,16 +35,46 @@
 
 ;;; Core evaluator
 
-(defun evaluate (node &key (variables nil))
-  "Evaluate an AST node. VARIABLES is an alist of (name . value) bindings."
-  (let ((*variable-table* (make-hash-table :test 'eq)))
+(defun evaluate (node &key (variables nil) (cache *global-cache*))
+  "Evaluate an AST node using CACHE. VARIABLES is an alist of (name . value) bindings."
+  (let ((*variable-table* (make-hash-table :test 'eq))
+        (*global-cache* cache))
     ;; Populate with provided bindings
     (dolist (binding variables)
       (set-variable-value (car binding) (cdr binding)))
-    (evaluate-node node)))
+    (evaluate-node-cached node)))
+
+(defun evaluate-node-cached (node &optional (cache *global-cache*))
+  "Evaluate a single AST node using CACHE. Caches whole and sub-expression results."
+  (multiple-value-bind (value found) (cache-get cache node)
+    (if found
+        (progn
+          (incf (cache-hits cache))
+          value)
+        (progn
+          (incf (cache-misses cache))
+          (let ((result (evaluate-node-uncached node cache)))
+            (cache-set cache node result)
+            result)))))
+
+(defun evaluate-node-uncached (node cache)
+  "Evaluate NODE without looking it up in CACHE, but still using cache for sub-expressions.
+   Rewrites NODE with cached sub-expressions before recursing."
+  (let ((rewritten (rewrite-with-cache node cache)))
+    (cond
+      ((constant-node-p rewritten)
+       (constant-value rewritten))
+      ((variable-node-p rewritten)
+       (variable-value (variable-name rewritten)))
+      ((consp rewritten)
+       (let ((op (car rewritten))
+             (args (cdr rewritten)))
+         ;; Recursively evaluate arguments with caching, then apply operator.
+         (apply (operator-function op) (mapcar (lambda (arg) (evaluate-node-cached arg cache)) args))))
+      (t (error "Invalid AST node: ~A" node)))))
 
 (defun evaluate-node (node)
-  "Evaluate a single AST node."
+  "Evaluate a single AST node without caching. Kept for backward compatibility and testing."
   (cond
     ((constant-node-p node)
      (constant-value node))
@@ -53,7 +83,6 @@
     ((consp node)
      (let ((op (car node))
            (args (cdr node)))
-       ;; Recursively evaluate arguments, then apply the operator implementation.
        (apply (operator-function op) (mapcar #'evaluate-node args))))
     (t (error "Invalid AST node: ~A" node))))
 
