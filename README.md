@@ -100,6 +100,13 @@ The project is organized into five implementation phases:
 - [ ] Level 2: Runtime function specialization + hot-swapping
 - [ ] Level 3: Source-level rewriting for persistent optimization
 
+### Benchmarking (Cross-Phase)
+- [ ] Build benchmark suite: conventional vs self-modifying comparison
+- [ ] Short series (100 calcs): target ≥1.0× speedup, stretch 1.5×
+- [ ] Medium series (10,000 calcs): target ≥2.0× speedup, stretch 5.0×
+- [ ] Long series (1,000,000 calcs): target ≥5.0× speedup, stretch 20.0×+
+- [ ] Track cache hit ratios, cold vs warm performance per optimization level
+
 ### Phase 4 — Math Modules
 - [ ] Arithmetic (enhanced with caching)
 - [ ] Algebra (quadratics, factoring, polynomials)

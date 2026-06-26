@@ -223,6 +223,94 @@ Result: Replace only the known sub-expression:
 
 ---
 
+
+## Performance Benchmarking Suite
+
+A dedicated benchmarking framework to measure the self-modifying calculator's performance against conventional (non-caching, non-self-modifying) calculation. The benchmark suite generates randomized calculation series at three deterministic lengths, times both approaches, and reports comparative metrics.
+
+### Benchmark Design
+
+#### Conventional Baseline
+- Standard Common Lisp arithmetic — no caching, no self-modification, no AST lookup
+- Fresh evaluation of every expression each time
+- Represents the "naive" approach that the self-modifying calculator aims to beat
+
+#### Self-Modifying Variant
+- Same calculation series, processed by the self-modifying calculator
+- Warm-up period: the first pass builds the cache via Level 1 (hash table)
+- Subsequent passes benefit from cache hits (Level 1), function specialization (Level 2), and source-level optimization (Level 3)
+
+#### Series Lengths (Deterministic, Randomized Content)
+
+| Series | Number of Calculations | Purpose |
+|--------|----------------------|---------|
+| **Short** | 100 | Measure overhead vs benefit for small workloads |
+| **Medium** | 10,000 | Realistic batch size for a typical computation loop |
+| **Long** | 1,000,000 | Stress test for the caching and optimization pipeline |
+
+Each series is generated with deterministic seeding for reproducibility. The expressions within each series are randomized across a constrained set of patterns to simulate repeated similar calculations:
+
+- **Arithmetic series**: Random operands (bounded range), random operators from `(+-*/)`
+- **Vector series**: Random 2D/3D vectors, repeated dot product and cross product calculations
+- **Polynomial series**: Random coefficients, evaluation at repeated points
+- **Mixed series**: Combinations of the above to test sub-expression reuse across different problem types
+
+### Benchmark Execution
+
+```
+For each series length (short / medium / long):
+  1. Generate the randomized expression series (seed-controlled)
+  2. Run the conventional baseline: evaluate all expressions serially, timing total wall-clock
+  3. Reset state
+  4. Run the self-modifying variant:
+     a. First pass: evaluate all expressions (populates cache)
+     b. Second pass: evaluate all expressions again (hits cache)
+     c. Third pass: evaluate all expressions again (triggers function specialization)
+     d. (If Level 3 available) Serialize cache, reload, evaluate again
+  5. Record and compare: total time, per-expression average time, cache hit ratio
+```
+
+### Metrics Collected
+
+| Metric | Description |
+|--------|-------------|
+| **Total wall-clock time** | Elapsed real time from start to finish |
+| **Per-expression average time** | Total time ÷ number of expressions |
+| **Speedup factor** | Conventional time ÷ self-modifying time (per category) |
+| **Cache hit ratio** | Number of cache hits ÷ total AST nodes evaluated |
+| **Optimization level reached** | Which levels (1/2/3) engaged during the run |
+| **Cold vs warm performance** | First pass time vs repeated pass time |
+
+### Explicit Performance Goals
+
+The self-modifying calculator **must beat conventional calculation** across all series categories. The target thresholds:
+
+| Category | Minimum Speedup Factor | Stretch Goal |
+|----------|----------------------|--------------|
+| **Short series (100)** | 1.0× (no slower than conventional) | 1.5× |
+| **Medium series (10,000)** | 2.0× | 5.0× |
+| **Long series (1,000,000)** | 5.0× | 20.0×+ |
+
+The primary focus is achieving maximum speedup on the **long series**, where the caching and self-modification overhead is amortized over the largest number of repeated sub-expressions. The short series exists primarily to ensure the overhead of cache lookups does not make simple calculations slower.
+
+### Benchmarking File
+
+A dedicated benchmarking module lives at:
+
+```
+tests/benchmarks/
+├── benchmark-runner.lisp     # Orchestrator: series generation, timing, reporting
+├── series-generator.lisp     # Randomized expression series (deterministic seed)
+├── conventional-eval.lisp    # Naive evaluation baseline
+├── smc-eval.lisp             # Self-modifying calculator evaluation harness
+├── metric-report.lisp        # Comparison reporting and visualization
+└── results/                  # Directory for benchmark output files
+```
+
+This benchmarking suite is executed as its own step during development (not part of the standard test suite) and results are tracked over time to monitor optimization progress.
+
+---
+
 ## Implementation Phases
 
 ### Phase 1 — Foundation
