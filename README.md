@@ -1,42 +1,165 @@
 # Self-Modifying Calculator
 
-A command-line calculator written in Common Lisp that optimizes and modifies itself. This project is a work in progress (WIP), with plans to support a wide range of mathematical functions and operations.
+A command-line calculator written in Common Lisp that **optimizes itself for repeated, similar calculations** by caching not just whole expressions but their sub-parts. Each time it performs an operation, it rewrites itself — at runtime and/or at the source level — to refer to previously computed results instead of recalculating.
+
+> **Target use cases**: Repeated mathematical operations in renderers, 3D games, physics simulations, and any scenario where similar computations happen many times.
+
+---
 
 ## Table of Contents
-- [Features](#features)
+- [How It Works](#how-it-works)
+- [Examples](#examples)
+- [Roadmap](#roadmap)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Planned Features](#planned-features)
+- [Project Structure](#project-structure)
 - [License](#license)
 
-## Features
-- Basic arithmetic operations: addition, subtraction, multiplication, and division.
-- Self-optimizing code for improved performance.
+---
+
+## How It Works
+
+Expressions are represented as ASTs (Abstract Syntax Trees). The system caches **both whole expressions and their sub-expressions**, enabling partial reuse. Three levels of self-modification provide increasing optimization depth:
+
+| Level | Mechanism | Persistence |
+|-------|-----------|-------------|
+| **1** | Runtime hash table cache (O(1) lookup) | Per-session |
+| **2** | Runtime function redefinition via `fdefinition` | Per-session |
+| **3** | Source file rewriting with embedded constants | Across sessions |
+
+### Example: Dot Product
+
+```
+N⋅L = (0)(0.6) + (0)(0) + (1)(0.8)
+
+Sub-expressions cached:
+(0 × 0.6) → 0
+(0 × 0)   → 0
+(1 × 0.8) → 0.8
+
+If N changes slightly to (0, 0, 2):
+Only (2 × 0.8) → 1.6 needs computation
+The rest hits cache → no recalculation needed
+```
+
+### Example: Quadratic Equation
+
+```
+x² + 5x + 6 = 0  factors to  (x + 2)(x + 3) = 0
+
+Sub-expressions cached:
+(x + 2) → individual factor result
+(x + 3) → individual factor result
+(x + 2)(x + 3) → combined factor result
+
+If a later problem uses (x + 2) as a sub-expression,
+the cached result is reused directly.
+```
+
+---
+
+## Examples
+
+### Basic Arithmetic
+```bash
+clisp calculator.lsp 5+7
+# 12
+
+clisp calculator.lsp 8-4
+# 4
+
+clisp calculator.lsp 4*2
+# 8
+
+clisp calculator.lsp 10/5
+# 2
+```
+
+*(More sophisticated syntax with operator precedence, variables, and function support coming in future phases.)*
+
+---
+
+## Roadmap
+
+The project is organized into five implementation phases:
+
+### Phase 1 — Foundation
+- [ ] Set up SBCL + ASDF project structure
+- [ ] AST representation and Pratt parser (string → AST)
+- [ ] Basic evaluator (AST → result)
+- [ ] Port CLI to SBCL
+
+### Phase 2 — Caching Engine
+- [ ] In-memory hierarchical cache (whole + sub-expressions)
+- [ ] Expression matcher (tree isomorphism for partial matching)
+- [ ] Persistent cache (serialized to disk)
+- [ ] Cache-aware evaluator
+
+### Phase 3 — Self-Modification
+- [ ] Level 1: Runtime hash cache
+- [ ] Level 2: Runtime function specialization + hot-swapping
+- [ ] Level 3: Source-level rewriting for persistent optimization
+
+### Phase 4 — Math Modules
+- [ ] Arithmetic (enhanced with caching)
+- [ ] Algebra (quadratics, factoring, polynomials)
+- [ ] Linear algebra (vectors, dot/cross products, matrices)
+- [ ] Trigonometry
+- [ ] Calculus (numerical derivatives, integrals)
+
+### Phase 5 — Polish
+- [ ] Full documentation and examples
+- [ ] Integration tests
+- [ ] Benchmarks and demos
+
+> **Full architectural plan**: See [`docs/plan.md`](docs/plan.md)
+
+---
 
 ## Installation
-1. Clone the repository:
+
+### Prerequisites
+- **SBCL** (Steel Bank Common Lisp) — recommended runtime
+- **Quicklisp** — for dependency management
+- **CLISP** — for backward compatibility with the existing `calculator.lsp`
+
+### Setup
 ```bash
 git clone https://github.com/coco-is-magik/self-modifying-calculator.git
 cd self-modifying-calculator
 ```
-2. Ensure you have CLISP installed to run the Lisp code.
+
 ## Usage
-Execute the calculator with the following command:
 ```bash
-clisp calculator.lsp [num1][operation][num2]
-```
-### Example commands:
-```bash
+# Current CLI (basic arithmetic):
 clisp calculator.lsp 5+7
-clisp calculator.lsp 8-4
-clisp calculator.lsp 4*2
-clisp calculator.lsp 10/5
+
+# Future CLI (post-Phase 1):
+sbcl --load main.lisp --eval '(main)'
 ```
-## Planned Features
-- Support for non-integer operations.
-- Advanced mathematical operations including:
-- Parentheses and exponents.
-- Trigonometric and logarithmic functions.
-- Matrices, calculus, and more.
+
+---
+
+## Project Structure
+
+```
+self-modifying-calculator/
+├── docs/
+│   └── plan.md              # Full architectural plan (source of truth)
+├── src/
+│   ├── core/                 # Engine: AST, cache, evaluator, optimizer
+│   ├── math/                 # Pluggable math modules
+│   ├── interface/            # CLI and parser
+│   └── main.lisp             # Entry point
+├── tests/                    # Test suites
+├── cache/                    # Persistent cache data
+├── calculator.lsp            # Current CLISP calculator (backward compat)
+├── README.md
+└── LICENSE
+```
+
+---
+
 ## License
-This project is licensed under the MIT License. See the LICENSE file for details.
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
