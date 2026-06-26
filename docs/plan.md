@@ -359,6 +359,45 @@ This benchmarking suite is executed as its own step during development (not part
 
 ---
 
+## Performance Analysis and Corrective Plan
+
+### Why Simple Arithmetic Is Currently Slower
+
+Benchmarking revealed that the cache-aware evaluator is **slower than the conventional evaluator for simple arithmetic** and only marginally faster for dot products. The root cause is that the cache lookup cost exceeds the cost of the operations it skips.
+
+For a single expression like `2+3`:
+- **Conventional path**: tag check, extract two constants, apply `+` (one CPU instruction).
+- **SMC path**: hash the AST list `(:+ 2 3)` with `EQUAL`, probe the hash table, increment a counter, then return the cached value.
+
+The hash lookup is more expensive than the addition. In the arithmetic benchmark, roughly 37% of the 100,000 expressions are unique, so the evaluator pays the lookup cost on every evaluation and only gets a hit on the other 63%.
+
+### Why Dot Products Are Slightly Faster
+
+The dot-product benchmark computes `(nx*0.6)+(ny*0.0)+(nz*0.8)` with `nx, ny, nz ∈ {-1, 0, 1}`. There are only 27 unique whole expressions and 9 unique products. After the first pass, nearly every sub-expression and every whole expression is cached. The warm pass shows ~1.20× speedup because the saved work (3 multiplications + 2 additions) finally exceeds the lookup cost, but the `EQUAL` hash lookup still consumes a significant portion of the runtime.
+
+### Corrective Strategy
+
+The selected path forward is **A + D**:
+
+1. **Compiled cache dispatch table** (Option A): Replace the generic `EQUAL` hash table with a compiled `cond`/`case` function for whole-expression cache hits. This eliminates hash computation and list traversal for warm expressions.
+2. **Vector/linear algebra module** (Option D): Add `:vec3`, `:dot`, `:cross`, `:norm`, and `:normalize` operators. This provides a realistic renderer workload where the cache saves more expensive work.
+
+### Additional Benchmark Refactoring
+
+The benchmark suite will be split by math domain so we can measure and communicate per-category performance:
+
+- **Arithmetic**: scalar `+ - * / ^` with small operands (hardest case for cache overhead)
+- **Dot product**: `dot(vec3, vec3)` with fixed light direction (high sub-expression reuse)
+- **Cross product**: `cross(vec3, vec3)` with random vectors (moderately expensive)
+- **Trigonometry**: `sin`/`cos` combinations (expensive library calls, high cache value)
+- **Polynomial**: quadratic evaluation with repeated coefficients (factor reuse)
+- **Mixed**: random mixture of categories
+- **Realistic renderer**: combined lighting, dot product, and trig ops
+
+Each category runs at short (100), medium (10,000), and long (100,000) lengths. The summary table reports conventional time, SMC cold time, SMC warm time, and speedup.
+
+---
+
 ## Open Questions (To Be Resolved During Development)
 
 1. **SBCL vs CLISP backward compatibility**: Should we maintain a CLISP-compatible code path, or fully commit to SBCL?
@@ -366,6 +405,8 @@ This benchmarking suite is executed as its own step during development (not part
 3. **Expression syntax**: Support for variables (`x`, `y`), functions (`sin(x)`), and how they interact with caching.
 4. **Cache eviction policy**: How to bound cache size — LRU, TTL, or unlimited?
 5. **Thread safety**: Is concurrency a requirement for the target use case (renderers are often threaded)?
+6. **Dispatch recompilation strategy**: Recompile lazily on cache miss, or compile once when the cache reaches a threshold?
+7. **Vector representation**: Use plain 3-element lists for cache-key compatibility, or switch to arrays for faster access?
 
 ---
 

@@ -191,10 +191,83 @@ The benchmark results show that the current cache/evaluator is **not yet faster*
 - CLI is still stateless; cache persistence must be invoked explicitly by the user
 
 **Next Steps** (for Session 4):
-- Decide which performance option(s) to pursue (recommend starting with compiled cache dispatch and/or canonical AST interning)
-- Implement the chosen optimization and rerun benchmarks
-- Add a vector/dot-product math module to make the workload more realistic
-- Consider adding a quadratic-equation algebra module to demonstrate sub-expression reuse in a more complex scenario
-- Continue updating `docs/HANDOFF.md` and `docs/CHANGELOG.md`
+- Implement compiled cache dispatch table (Option A) to eliminate EQUAL hash lookup overhead
+- Add a vector/linear algebra module (`src/math/linear-algebra.lisp`) with `:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`
+- Refactor the benchmark suite into per-category benchmarks (arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer) plus a summary runner
+- Add tests for the new dispatch compiler and vector operators
+- Update `docs/plan.md`, `docs/HANDOFF.md`, and `README.md` as work progresses
+
+---
+
+## Session 4 — Compiled Cache Dispatch and Vector Math Module (Planned)
+
+**Date**: 2026-06-26 (planned)
+
+**Goals**:
+1. **Fix the performance flaw** with a compiled cache dispatch table.
+2. **Add realistic math modules** so benchmarks reflect the target use case (renderers, 3D games).
+3. **Refactor benchmarks** so we can measure and communicate per-category strengths and weaknesses.
+
+**Reasoning**:
+The current cache uses a generic `EQUAL` hash table on AST lists. For simple arithmetic, the lookup is more expensive than the operation itself. For dot products, the lookup consumes a large fraction of the saved work. A compiled dispatch table turns warm cache hits into direct compiled comparisons, removing both hash computation and list traversal. A vector math module provides the realistic, more expensive operations where caching will show the strongest wins.
+
+**Detailed Plan**:
+
+### 4.1 Compiled Cache Dispatch Table
+
+- Add a `compiled-lookup` slot to the `cache` struct in `src/core/cache.lisp`.
+- Implement a dispatch compiler (likely in `src/core/optimizer.lisp` or new `src/core/dispatch-compiler.lisp`) that:
+  - Collects whole-expression entries from the cache table.
+  - Generates a `(lambda (node) ...)` with `cond` clauses for each cached expression.
+  - Each clause uses structural comparison and returns `(values cached-value :found)`.
+  - The final clause returns `(values nil :not-found)`.
+  - Uses `compile` to produce the function.
+- Modify `src/core/evaluator.lisp` to check the compiled dispatch before the generic hash table.
+- Recompile the dispatch lazily when the cache changes, but only after the cache reaches a threshold (e.g., ≥20 entries) to avoid compilation overhead for tiny caches.
+- Add tests verifying the compiled dispatch returns the same results as the hash table.
+
+### 4.2 Vector / Linear Algebra Module
+
+- Create `src/math/linear-algebra.lisp`.
+- Register operators:
+  - `:vec3` — construct a 3D vector (list of three numbers)
+  - `:dot` — dot product of two vectors
+  - `:cross` — cross product of two vectors
+  - `:norm` — Euclidean norm
+  - `:normalize` — unit vector
+- Use 3-element lists for vectors so they naturally serve as cache keys.
+- Add tests in `tests/core/test-linear-algebra.lisp`.
+- Update `self-modifying-calculator.asd` to load the new module.
+
+### 4.3 Refactored Benchmark Suite
+
+- Create `tests/benchmarks/benchmark-framework.lisp` for shared timing and reporting.
+- Create `tests/benchmarks/series-generators.lisp` for deterministic generators per category.
+- Refactor existing benchmarks to use the framework.
+- Add new benchmarks:
+  - `cross-product-benchmark.lisp`
+  - `trig-benchmark.lisp`
+  - `polynomial-benchmark.lisp`
+  - `mixed-benchmark.lisp`
+  - `realistic-renderer-benchmark.lisp`
+- Create `tests/benchmarks/run-all-benchmarks.lisp` as the entry point that prints a summary table.
+- Each benchmark reports conventional time, SMC cold time, SMC warm time, and speedup.
+
+### 4.4 Documentation Updates
+
+- Update `docs/plan.md` with the corrective strategy and benchmark categories (already done in this session).
+- Update `docs/CHANGELOG.md` after implementation.
+- Update `README.md` with benchmark usage and current performance direction.
+
+**Expected Outcomes**:
+- Simple arithmetic warm pass should flip from ~0.7× to ≥1.0×.
+- Dot product warm pass should improve from ~1.2× to ≥2–3×.
+- Realistic renderer/cross-product/trig benchmarks should show the strongest speedups, likely meeting the plan's medium/long targets for those categories.
+- Simple arithmetic will remain the hardest category because the operation itself is so cheap.
+
+**Known Risks / Open Decisions**:
+- **Dispatch recompilation strategy**: Lazy recompile on cache miss vs. threshold-based compile. We will start with lazy recompile with a threshold.
+- **Vector representation**: 3-element lists (cache-key friendly) vs. arrays (faster access). We will use 3-element lists.
+- **Cache growth**: A large dispatch table could slow compilation. We may need an eviction policy later.
 
 ---

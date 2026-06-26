@@ -83,43 +83,53 @@ clisp calculator.lsp 10/5
 
 The project is organized into five implementation phases:
 
-### Phase 1 — Foundation
-- [ ] Set up SBCL + ASDF project structure
-- [ ] AST representation and Pratt parser (string → AST)
-- [ ] Basic evaluator (AST → result)
-- [ ] Port CLI to SBCL
+### Phase 1 — Foundation ✅
+- [x] Set up SBCL + ASDF project structure
+- [x] AST representation and parser (string → AST)
+- [x] Basic evaluator (AST → result)
+- [x] CLI entry point
 
-### Phase 2 — Caching Engine
-- [ ] In-memory hierarchical cache (whole + sub-expressions)
-- [ ] Expression matcher (tree isomorphism for partial matching)
-- [ ] Persistent cache (serialized to disk)
-- [ ] Cache-aware evaluator
+### Phase 2 — Caching Engine ✅
+- [x] In-memory hierarchical cache (whole + sub-expressions)
+- [x] Expression matcher (tree isomorphism for partial matching)
+- [x] Persistent cache (serialized to disk)
+- [x] Cache-aware evaluator
 
-### Phase 3 — Self-Modification
-- [ ] Level 1: Runtime hash cache
-- [ ] Level 2: Runtime function specialization + hot-swapping
-- [ ] Level 3: Source-level rewriting for persistent optimization
+### Phase 3 — Self-Modification ✅
+- [x] Level 1: Runtime hash cache
+- [x] Level 2: Runtime function specialization + hot-swapping
+- [x] Level 3: Source-level rewriting for persistent optimization
 
-### Benchmarking (Cross-Phase)
-- [ ] Build benchmark suite: conventional vs self-modifying comparison
-- [ ] Short series (100 calcs): target ≥1.0× speedup, stretch 1.5×
-- [ ] Medium series (10,000 calcs): target ≥2.0× speedup, stretch 5.0×
-- [ ] Long series (1,000,000 calcs): target ≥5.0× speedup, stretch 20.0×+
+### Phase 4 — Performance Optimization & Benchmarking (In Progress)
+- [ ] Compiled cache dispatch table to replace EQUAL hash lookup
+- [ ] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
+- [ ] Refactor benchmark suite into per-category benchmarks
+- [ ] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer
 - [ ] Track cache hit ratios, cold vs warm performance per optimization level
 
-### Phase 4 — Math Modules
-- [ ] Arithmetic (enhanced with caching)
+### Phase 5 — Math Modules (Planned)
 - [ ] Algebra (quadratics, factoring, polynomials)
-- [ ] Linear algebra (vectors, dot/cross products, matrices)
-- [ ] Trigonometry
+- [ ] Trigonometry (sine/cosine operators for benchmarks)
 - [ ] Calculus (numerical derivatives, integrals)
+- [ ] Statistics
 
-### Phase 5 — Polish
+### Phase 6 — Polish (Planned)
 - [ ] Full documentation and examples
 - [ ] Integration tests
 - [ ] Benchmarks and demos
 
 > **Full architectural plan**: See [`docs/plan.md`](docs/plan.md)
+
+## Performance Direction
+
+Initial benchmarks show that the cache-aware evaluator is **not yet faster than the conventional evaluator for simple arithmetic** and only marginally faster for dot products. The root cause is that EQUAL hash-table lookup on AST lists is more expensive than the arithmetic operations it skips.
+
+The current corrective plan is:
+1. **Compiled cache dispatch table**: generate a compiled `cond`/`case` function for whole-expression cache hits, eliminating hash computation and list traversal.
+2. **Vector/linear algebra module**: add realistic renderer operations (dot/cross products, vector normalization) where the cache saves more expensive work.
+3. **Per-category benchmarks**: split the benchmark suite by math domain so strengths and weaknesses are visible.
+
+See `docs/plan.md` for the full performance analysis and `docs/HANDOFF.md` for the detailed implementation plan.
 
 ---
 
