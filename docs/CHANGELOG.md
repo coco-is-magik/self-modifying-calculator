@@ -6,6 +6,39 @@
 
 ---
 
+## 2026-06-26 — Session 3: Phase 3 Self-Modification and Benchmarking
+
+**Change**: Implemented all three levels of self-modification (cache persistence, runtime function specialization, source-level rewriting) and added benchmarking harnesses.
+
+**Affected Files**:
+- `src/core/cache.lisp` (updated with `save-cache` and `load-cache`)
+- `src/core/optimizer.lisp` (created)
+- `src/core/self-writer.lisp` (created)
+- `src/core/evaluator.lisp` (updated to store original operator functions)
+- `src/interface/parser.lisp` (updated with `*parse-cache*`)
+- `self-modifying-calculator.asd` (updated to include new files)
+- `tests/core/test-optimizer.lisp` (created)
+- `tests/core/test-self-writer.lisp` (created)
+- `tests/benchmarks/arithmetic-benchmark.lisp` (created)
+- `tests/benchmarks/dot-product-benchmark.lisp` (created)
+- `docs/HANDOFF.md` (updated with Session 3 entry)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: The project name is "Self-Modifying Calculator"; this session delivers the actual self-modification mechanisms described in the plan. The benchmarks are required to prove that the self-modification improves performance.
+
+**Details**:
+- Added Level 1 persistence: `save-cache` and `load-cache` for `cache/cache.sexp`
+- Added Level 2 specialization: `optimizer.lisp` tracks hot operand patterns, generates compiled short-circuit functions, and hot-swaps them
+- Added Level 3 source rewriting: `self-writer.lisp` emits a loadable Lisp file with `cache-set` literals
+- Added parser cache to avoid re-tokenizing/re-parsing repeated strings
+- Added arithmetic and dot-product benchmarks
+
+**Important Finding**: The current implementation is not yet faster than conventional evaluation for simple arithmetic and only ~1.20× faster for the dot-product benchmark. The plan's targets (5× long series, 20× stretch) are not met. See `docs/HANDOFF.md` Session 3 for a full analysis and five proposed corrective options.
+
+**Notes for Future**: The next session should focus on reducing cache lookup overhead. Top candidates are compiled cache dispatch tables and canonical AST interning.
+
+---
+
 ## 2026-06-26 — Session 2: Phase 2 Caching Engine Implemented
 
 **Change**: Implemented the hierarchical expression cache, matcher, and cache-aware evaluator.

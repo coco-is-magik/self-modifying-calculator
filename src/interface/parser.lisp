@@ -127,9 +127,20 @@
             (variable-node token))))
       (t (error "Unexpected token: ~A" token)))))
 
-;;; Public API
+;;; Parser cache
+
+(defparameter *parse-cache* (make-hash-table :test 'equal)
+  "Cache mapping input strings to parsed ASTs.")
 
 (defun parse (string)
-  "Parse STRING into an AST node."
-  (let ((stream (make-token-stream :tokens (tokenize string))))
-    (parse-expression stream)))
+  "Parse STRING into an AST node. Results are cached for repeated strings."
+  (or (gethash string *parse-cache*)
+      (let ((ast (let ((stream (make-token-stream :tokens (tokenize string))))
+                   (parse-expression stream))))
+        (setf (gethash string *parse-cache*) ast)
+        ast)))
+
+(defun clear-parse-cache ()
+  "Clear the parser cache."
+  (clrhash *parse-cache*)
+  nil)

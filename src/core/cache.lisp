@@ -51,6 +51,40 @@
         :hits (cache-hits cache)
         :misses (cache-misses cache)))
 
+;;; Persistence
+
+(defparameter *cache-file-path*
+  (merge-pathnames #p"cache/cache.sexp" *default-pathname-defaults*)
+  "Default path for the serialized cache file.")
+
+(defun save-cache (cache &optional (path *cache-file-path*))
+  "Serialize CACHE to PATH. Only ground entries are saved."
+  (ensure-directories-exist path)
+  (with-open-file (stream path :direction :output :if-exists :supersede :if-does-not-exist :create)
+    (let ((*print-readably* t)
+          (*print-pretty* t))
+      (format stream ";;;; Self-Modifying Calculator cache~%")
+      (format stream ";;;; Generated automatically. Do not hand-edit unless you know what you are doing.~%")
+      (format stream "(~%")
+      (maphash (lambda (key value)
+                 (format stream "  (~S . ~S)~%" key value))
+               (cache-table cache))
+      (format stream ")~%")))
+  path)
+
+(defun load-cache (cache &optional (path *cache-file-path*))
+  "Load entries from PATH into CACHE. Returns the number of entries loaded."
+  (when (probe-file path)
+    (with-open-file (stream path :direction :input)
+      (let ((entries (read stream nil nil)))
+        (when (listp entries)
+          (dolist (entry entries)
+            (when (consp entry)
+              (cache-set cache (car entry) (cdr entry))))
+          (length entries)))))
+  0)
+
+
 (defun ast-ground-p (node)
   "Return true if NODE contains no variable references."
   (let ((ground t))

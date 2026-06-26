@@ -8,9 +8,19 @@
 (defparameter *operator-table* (make-hash-table :test 'eq)
   "Hash table mapping operator symbols to their implementation functions.")
 
+(defparameter *original-operator-functions* (make-hash-table :test 'eq)
+  "Hash table mapping operator symbols to their original, un-specialized functions.")
+
+(defun operator-base-function (op)
+  "Get the original, un-specialized function for operator OP."
+  (gethash op *original-operator-functions*))
+
 (defun register-operator (op function)
-  "Register a function for the operator OP."
-  (setf (gethash op *operator-table*) function))
+  "Register a function for the operator OP. Also store it as the base function
+   for future specialization."
+  (setf (gethash op *operator-table*) function)
+  (setf (gethash op *original-operator-functions*) function)
+  function)
 
 (defun operator-function (op)
   "Get the implementation function for operator OP, or signal an error."

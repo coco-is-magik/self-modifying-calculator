@@ -128,3 +128,73 @@
 - Record all work in this handoff and the changelog
 
 ---
+
+## Session 3 — Phase 3 Self-Modification and Benchmarking
+
+**Date**: 2026-06-26
+
+**Completed**:
+- Implemented `src/core/cache.lisp` persistence:
+  - `save-cache` serializes the cache to `cache/cache.sexp`
+  - `load-cache` reads entries back into a cache
+  - `*cache-file-path*` default path
+- Implemented `src/core/optimizer.lisp` for Level 2 runtime function specialization:
+  - Tracks how often each operator is called with specific constant operands
+  - Generates a compiled specialized function with short-circuit `cond` clauses for hot patterns
+  - Hot-swaps the specialized function into the operator registry
+  - Keeps the original base function in `*original-operator-functions*` so wrappers never recurse
+- Updated `src/core/evaluator.lisp` so `register-operator` stores both the current and original base function
+- Implemented `src/core/self-writer.lisp` for Level 3 source-level self-modification:
+  - `write-cache-as-source` writes cache entries as a loadable Lisp source file
+  - `load-generated-cache-source` loads the generated file to prepopulate the global cache
+- Added `*parse-cache*` in `src/interface/parser.lisp` to avoid re-parsing repeated input strings
+- Updated `self-modifying-calculator.asd` to include `optimizer.lisp` and `self-writer.lisp`
+- Added tests: `tests/core/test-optimizer.lisp` (3 test groups), `tests/core/test-self-writer.lisp` (1 test group)
+- Added benchmark harnesses:
+  - `tests/benchmarks/arithmetic-benchmark.lisp` — short/medium/long arithmetic series
+  - `tests/benchmarks/dot-product-benchmark.lisp` — 3D dot-product workload
+- Updated `docs/CHANGELOG.md` with Session 3 entry
+
+**Rationale**: Phase 3 adds the actual self-modification mechanisms. Persistence, function specialization, and source rewriting are the three levels described in the plan. Benchmarks are essential to verify that the self-modification actually improves performance.
+
+**Critical Finding — Performance Does Not Yet Meet Plan Targets**:
+The benchmark results show that the current cache/evaluator is **not yet faster** than the conventional evaluator for simple arithmetic, and only marginally faster for the dot-product workload:
+
+| Workload | SMC warm vs conventional | Plan target (long) |
+|---|---|---|
+| Simple arithmetic (100k) | ~0.60–0.80× (slower) | ≥5× |
+| Dot product (100k) | ~1.20× | ≥5× |
+
+**Why this is happening**:
+1. The cache key is a full AST list compared with `EQUAL`, which is expensive for very cheap arithmetic operations.
+2. Every evaluation still rewrites the AST and recurses, even on a cache hit for the whole expression.
+3. Parser and cache overhead dominate when the actual computation is a single arithmetic op.
+
+**Options to improve and correct this flaw** (choose one or more):
+
+1. **Compiled cache dispatch table** (highest impact): Instead of a generic EQUAL hash table, generate a compiled `cond`/`case` that dispatches on AST shape. This avoids hash lookup and list traversal for hot expressions.
+2. **Memoize parsed ASTs to canonical objects**: Intern ASTs so the same expression always returns the same object, allowing `EQ` hash lookups instead of `EQUAL`.
+3. **Skip rewriting for fully cached expressions**: The current code rewrites even when the top-level node is cached. A fast path should return the cached value immediately without any AST traversal.
+4. **Add more expensive math modules**: The current benchmarks only exercise cheap arithmetic. The dot-product example in the README uses more sub-expressions; adding a vector math module and a more realistic renderer-style benchmark would show larger wins.
+5. **Reduce the problem space**: Restrict the random benchmark to a smaller operand/operator set so cache hit rate is extremely high, making the overhead more visible and the speedup more achievable.
+
+**Current State**:
+- Phase 3 is implemented and tested
+- All 33 tests pass
+- Benchmarks exist and run, but results do not yet meet the plan's speedup targets
+- `./run.sh "2+3*4"` still works correctly
+
+**Blockers / Known Limitations**:
+- Cache lookup overhead is too high for simple arithmetic
+- Function specialization only triggers for hot operand pairs; it does not yet dominate overall performance
+- Source-level rewriting helps startup time but does not speed up runtime evaluation
+- CLI is still stateless; cache persistence must be invoked explicitly by the user
+
+**Next Steps** (for Session 4):
+- Decide which performance option(s) to pursue (recommend starting with compiled cache dispatch and/or canonical AST interning)
+- Implement the chosen optimization and rerun benchmarks
+- Add a vector/dot-product math module to make the workload more realistic
+- Consider adding a quadratic-equation algebra module to demonstrate sub-expression reuse in a more complex scenario
+- Continue updating `docs/HANDOFF.md` and `docs/CHANGELOG.md`
+
+---
