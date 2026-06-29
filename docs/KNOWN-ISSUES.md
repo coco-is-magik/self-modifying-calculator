@@ -18,9 +18,9 @@
    - **Planned resolution**: Revisit with a smarter structure (e.g., trie, hash-based dispatch, or limited per-operator dispatch tables) that avoids linear scan and stack overflow.
 
 3. **Short/medium benchmark timing noise** (2026-06-28)
-   - **Description**: Short (100) and medium (10,000) calculation series complete too quickly for reliable wall-clock measurement with the current timer. Many timings report 0.0000 s.
-   - **Impact**: Short/medium speedup numbers are unreliable and sometimes report `:inf` speedup.
-   - **Planned resolution**: Accumulate multiple repetitions per pass and divide by the repetition count to get measurable elapsed time. This is already done for short/medium in `benchmark-framework.lisp` but may need tuning.
+   - **Description**: Short (100) and medium (10,000) calculation series are now measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count. Timings are now measurable, though long series remain the most reliable source of speedup numbers.
+   - **Impact**: Short/medium speedup numbers are now mostly reliable, with occasional run-to-run variance.
+   - **Resolution**: `run-benchmark-category` in `tests/benchmarks/benchmark-framework.lisp` accumulates repetitions for short and medium series. Tuning may still be needed if variance remains high.
 
 ---
 
@@ -31,15 +31,15 @@
    - **Impact**: Long-running sessions can now bound memory usage.
    - **Resolution**: `make-cache` accepts an optional `max-size` argument; `cache-touch`, `cache-evict-lru`, and updated `cache-set`/`cache-get` implement LRU semantics. Test added in `tests/core/test-cache.lisp`.
 
-5. **Cache persistence is not automatic** (2026-06-28)
-   - **Description**: `save-cache` and `load-cache` exist, but the user must call them manually. The self-writer can write `src/generated/cache-literals.lisp`, but no automatic persistence hook exists on startup or shutdown.
-   - **Impact**: Every new session starts with a cold cache unless the user manually persists and reloads.
-   - **Planned resolution**: Add optional automatic save/load on process exit/startup controlled by a configuration flag.
+5. **Automatic cache persistence implemented** (2026-06-28)
+   - **Description**: `save-cache` and `load-cache` can now be invoked automatically via `maybe-save-global-cache` and `maybe-load-global-cache` when `*auto-persist-cache*` is true. The `main` CLI entry point loads the cache on startup and saves it on successful exit when auto-persistence is enabled.
+   - **Impact**: Sessions can now retain a warm cache across restarts by setting `*auto-persist-cache*` to `t`.
+   - **Resolution**: Added `*auto-persist-cache*` flag, `maybe-load-global-cache`, and `maybe-save-global-cache` in `src/core/cache.lisp`; updated `src/main.lisp` to load/save around CLI execution. Integration test added in `tests/integration/test-integration.lisp`.
 
-6. **Parser cache never cleared** (2026-06-28)
-   - **Description**: `*parse-cache*` maps input strings to parsed ASTs and grows without bound. `clear-parse-cache` exists but is not called automatically.
-   - **Impact**: Long-running sessions with many distinct input strings may consume memory.
-   - **Planned resolution**: Add a size-bound or periodic eviction policy for `*parse-cache*`, or clear it after each CLI invocation.
+6. **Parser cache eviction implemented** (2026-06-28)
+   - **Description**: `*parse-cache*` now has a configurable maximum size. When the number of entries reaches `*parse-cache-max-size*`, the cache is cleared before the next insertion.
+   - **Impact**: Long-running sessions with many distinct input strings no longer grow the parse cache without bound.
+   - **Resolution**: `*parse-cache-max-size*` defaults to 1000; `parse-cache-size` and `parse-cache-evict-if-needed` manage the bound. Test added in `tests/core/test-parser.lisp`.
 
 ---
 
@@ -50,36 +50,41 @@
    - **Impact**: Users must understand the internals to get the full benefit.
    - **Planned resolution**: Design a single configuration API that enables the appropriate levels automatically based on workload characteristics.
 
-8. **No function call syntax in the parser** (2026-06-28)
-   - **Description**: The parser supports prefix operators via S-expression ASTs, e.g., `(:sin x)` or `(:dot ...)` when constructed programmatically, but the string parser does not support `sin(x)` or `dot(a,b)` notation.
-   - **Impact**: CLI users cannot invoke trig, vector, or statistics functions with natural math syntax.
-   - **Planned resolution**: Extend the recursive-descent parser to recognize function identifiers followed by parentheses and comma-separated arguments.
+8. **Function call syntax implemented in the parser** (2026-06-28)
+   - **Description**: The string parser now supports function-call syntax such as `sin(x)`, `dot(a,b)`, and `vec3(x,y,z)`. Identifiers can include digits (e.g., `vec3`).
+   - **Impact**: CLI users can now invoke trig, vector, and statistics functions with natural math syntax.
+   - **Resolution**: `parse-primary` in `src/interface/parser.lisp` recognizes keyword tokens followed by `:lparen`, parses comma-separated arguments, and builds the corresponding AST. Tests added in `tests/core/test-parser.lisp`.
 
-9. **Self-writer writes into the source tree** (2026-06-28)
-   - **Description**: `write-cache-as-source` writes to `src/generated/cache-literals.lisp`. The `src/generated/` directory may not exist and generated files inside `src/` can be accidentally committed.
-   - **Impact**: Generated code is mixed with hand-written code, risking repository pollution.
-   - **Planned resolution**: Establish the generated directory as part of the build, add it to `.gitignore` (or document it as checked-in), and clarify the lifecycle.
+9. **Self-writer output moved out of the source tree** (2026-06-28)
+   - **Description**: `write-cache-as-source` now writes to `cache/generated/cache-literals.lisp` instead of `src/generated/cache-literals.lisp`. A `.gitignore` file has been added to exclude generated cache files and compiled Lisp files.
+   - **Impact**: Generated code is no longer mixed with hand-written source code, reducing repository pollution risk.
+   - **Resolution**: Updated `*generated-cache-file*` in `src/core/self-writer.lisp`; created `.gitignore`.
 
 ---
 
 ## Documentation
 
-10. **README test command is cumbersome** (2026-06-28)
-    - **Description**: The README test command loads eight separate test files with eight `--eval` expressions.
-    - **Impact**: Test invocation is error-prone and hard to maintain.
-    - **Planned resolution**: Provide a single `tests/load-all-tests.lisp` helper that loads all core and math tests in one go and update the README command.
+10. **README test command simplified** (2026-06-28)
+    - **Description**: The README test command now loads a single `tests/load-all-tests.lisp` helper.
+    - **Impact**: Test invocation is simpler and easier to maintain.
+    - **Resolution**: `tests/load-all-tests.lisp` loads all core, math, and integration tests and calls `run-all-tests`. README updated.
 
-11. **Package exports are incomplete** (2026-06-28)
+11. **No demo script** (2026-06-29)
+    - **Description**: New users had no single-command way to see the calculator win.
+    - **Impact**: The project was harder to demonstrate without running the full benchmark suite.
+    - **Resolution**: `demo.lisp` runs a focused realistic renderer benchmark and prints conventional time, SMC time, speedup, and cache stats.
+
+12. **Package exports are incomplete** (2026-06-28)
     - **Description**: Many internal functions used by tests and benchmarks were historically accessed with `smc::` double-colon notation.
     - **Impact**: README examples use double-colon access, which is non-idiomatic.
     - **Planned resolution**: Export commonly used internal functions (partially done in this session; verify and update remaining examples).
 
-12. **No integration tests** (2026-06-28)
+13. **No integration tests** (2026-06-28)
     - **Description**: Tests are unit-level only. There are no end-to-end tests covering parse → evaluate → cache → save/load workflows.
     - **Impact**: Risk of regressions in combined workflows not caught by unit tests.
     - **Planned resolution**: Add `tests/integration/test-integration.lisp` with end-to-end scenarios.
 
-13. **`plan.md` factual drift resolved** (2026-06-28)
+14. **`plan.md` factual drift resolved** (2026-06-28)
     - **Description**: `plan.md` previously mentioned Quicklisp, a Pratt parser, the FiveAM/Prove testing framework, a separate `cli.lisp`, a 1,000,000-calculation long series, and mismatched phase numbering. These were corrected in this session.
     - **Impact**: Documentation now matches the implemented state.
     - **Resolution**: Completed. Continue to keep `plan.md` in sync with future changes.

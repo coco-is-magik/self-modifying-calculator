@@ -65,10 +65,10 @@
 
 | Component | Planned | Code | Status |
 |---|---|---|---|
-| Full documentation & examples | ✅ plan.md | 🟡 Partial | README and plan updated |
-| Integration tests | ✅ plan.md | ❌ Missing | Not yet started |
-| Benchmarks and demos | ✅ plan.md | ✅ Benchmark suite exists | Demo scripts not yet created |
-| Cache eviction / size bounding | ✅ KNOWN-ISSUES.md | ❌ Missing | Planned |
+| Full documentation & examples | ✅ plan.md | 🟡 Partial | README, demo.lisp, and notes updated |
+| Integration tests | ✅ plan.md | ✅ tests/integration/test-integration.lisp | 5 end-to-end tests added |
+| Benchmarks and demos | ✅ plan.md | ✅ Benchmark suite + demo.lisp | Demo shows 3×+ speedup |
+| Cache eviction / size bounding | ✅ KNOWN-ISSUES.md | ✅ src/core/cache.lisp | LRU policy implemented |
 | Compiled dispatch revisit | ✅ KNOWN-ISSUES.md | ❌ Missing | Planned |
 | Unified 3-level pipeline | ✅ KNOWN-ISSUES.md | ❌ Missing | Planned |
 
@@ -86,7 +86,7 @@
 | `plan.md` phase numbering | ✅ Fixed | Phases 1–5 complete, Phase 6 in progress |
 | `README.md` Phase 5 status | ✅ Fixed | Marked complete with all 6 modules |
 | `README.md` Phase 6 status | ✅ Fixed | Marked in progress with new items |
-| `README.md` test command | 🟡 Still cumbersome | Pending `tests/load-all-tests.lisp` |
+| `README.md` test command | ✅ Fixed | Uses `tests/load-all-tests.lisp` |
 
 ---
 
@@ -113,14 +113,15 @@ Plan target: 5.0× minimum, 20× stretch. Targets not yet met for arithmetic (ha
 | `tests/core/test-ast.lisp` | 8 | ✅ |
 | `tests/core/test-parser.lisp` | 9 | ✅ |
 | `tests/core/test-evaluator.lisp` | 7 | ✅ |
-| `tests/core/test-cache.lisp` | 5 | ✅ |
+| `tests/core/test-cache.lisp` | 6 | ✅ (LRU eviction added) |
 | `tests/core/test-optimizer.lisp` | 3 | ✅ |
 | `tests/core/test-self-writer.lisp` | 1 | ✅ |
 | `tests/core/test-linear-algebra.lisp` | 5 | ✅ |
 | `tests/math/test-algebra.lisp` | 5 | ✅ (Session 5) |
 | `tests/math/test-calculus.lisp` | 3 | ✅ (Session 5) |
-| `tests/math/test-statistics.lisp` | 6 | ✅ (Session 5) |
- | 54 | ✅ Verified by test run |
+| `tests/math/test-statistics.lisp` | 8 | ✅ (Session 5) |
+| `tests/integration/test-integration.lisp` | 5 | ✅ (Session 5) |
+|  | 60 | ✅ Verified by test run |
 
 **Note**: The test count should be verified by actually running the test suite.
 
@@ -145,16 +146,16 @@ Plan target: 5.0× minimum, 20× stretch. Targets not yet met for arithmetic (ha
 
 A complete, dated list now lives in `docs/KNOWN-ISSUES.md`. Key items include:
 
-1. **Performance below plan targets** — 1.17×–3.50× vs 5× target
+1. **Performance below plan targets** — ~0.9×–3.5× vs 5× target (arithmetic is the hardest case)
 2. **Compiled dispatch disabled** — linear scan too slow for large caches
-3. **No cache eviction** — unbounded cache growth
+3. **Cache eviction implemented** — LRU policy added in `src/core/cache.lisp`
 4. **Cache persistence not automatic** — manual `save-cache`/`load-cache` only
 5. **No function call syntax** — `sin(x)` not supported in string parser
 6. **Parser cache never cleared** — `*parse-cache*` grows without bound
 7. **Self-writer writes to `src/`** — generated code lifecycle unspecified
 8. **No unified 3-level pipeline** — each level manually enabled
-9. **No integration tests** — only unit tests exist
-10. **README test command cumbersome** — multiple `--eval` loads
+9. **Integration tests added** — `tests/integration/test-integration.lisp`
+10. **README test command simplified** — uses `tests/load-all-tests.lisp`
 
 ---
 
@@ -162,19 +163,19 @@ A complete, dated list now lives in `docs/KNOWN-ISSUES.md`. Key items include:
 
 ### What's Done and Correct
 - Phases 1–5 are fully implemented and tested.
-- 54 tests documented (38 prior + 16 new from math modules).
-- All 7 benchmark categories work.
-- Documentation drift in `plan.md` and `README.md` has been corrected.
+- 60 tests documented (38 prior + 22 new from math modules, LRU eviction, and integration tests).
+- All 7 benchmark categories work; `demo.lisp` gives a single-command speedup demo.
+- Documentation drift in `plan.md`, `README.md`, and `repo-status-report.md` has been corrected.
+- Cache eviction (LRU), integration tests, and the simplified test runner are now implemented.
 - New math modules follow the same registration pattern as existing modules.
 - `docs/KNOWN-ISSUES.md` now tracks all gaps with dates and planned resolutions.
 
 ### What's Missing or Drifted
-- No remaining critical documentation drift. Minor remaining items are tracked in `docs/KNOWN-ISSUES.md`.
-- Phase 6 items (integration tests, cache eviction, unified pipeline, compiled dispatch revisit) are not yet implemented.
-- README test command still uses multiple `--eval` loads; helper not yet created.
+- No remaining critical documentation drift. Remaining engineering work is tracked in `docs/KNOWN-ISSUES.md`.
+- Phase 6 remaining items: compiled dispatch revisit, unified 3-level pipeline, parser cache eviction, automatic cache persistence, function call syntax, self-writer output directory cleanup, and package export cleanup.
 
 ### Recommendations
-1. Run the full test suite to confirm the 52-test count.
-2. Address the highest-impact Phase 6 gaps: cache eviction, integration tests, and simplified test invocation.
+1. Run the full test suite to confirm the 60-test count.
+2. Address the highest-impact Phase 6 gaps: parser cache eviction, automatic cache persistence, and function call syntax.
 3. Revisit compiled dispatch only if the EQ hash table path is confirmed to be the remaining bottleneck.
 4. Continue updating `docs/KNOWN-ISSUES.md` as new limitations are discovered or resolved.

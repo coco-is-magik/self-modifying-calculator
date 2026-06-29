@@ -1,0 +1,12 @@
+# Generated cache files
+cache/generated/
+cache/cache.sexp
+cache/test-*.sexp
+
+# Common Lisp compiled files
+*.fasl
+*.fasl
+
+# Editor / OS noise
+*~
+.DS_Store
