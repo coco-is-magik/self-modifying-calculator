@@ -148,6 +148,8 @@ The cache-aware evaluator now outperforms conventional evaluation on realistic w
 
 Arithmetic remains the hardest category because the operations themselves are so cheap. All renderer-style workloads (dot, cross, polynomial, realistic renderer) show solid 3×+ speedups.
 
+Short and medium series are measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count; long series are the most reliable source of speedup numbers.
+
 See `docs/plan.md`, `docs/HANDOFF.md`, and `docs/notes/session-4-implementation-notes.md` for the full analysis and implementation details.
 
 ---
@@ -188,6 +190,13 @@ sbcl --noinform \
   --eval "(load \"tests/load-all-tests.lisp\")" \
   --eval "(sb-ext:exit)"
 
+# Run the quick demo:
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(load \"demo.lisp\")" \
+  --eval "(sb-ext:exit)"
+
 # Run the full benchmark suite (long-running):
 sbcl --noinform \
   --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
@@ -214,6 +223,7 @@ self-modifying-calculator/
 │   ├── plan.md              # Full architectural plan (source of truth)
 │   ├── HANDOFF.md           # Session-by-session development log
 │   ├── CHANGELOG.md         # Change history
+│   ├── KNOWN-ISSUES.md      # Open gaps and technical debt
 │   └── notes/               # Detailed implementation notes
 ├── src/
 │   ├── core/                 # Engine: AST, cache, evaluator, optimizer
@@ -222,6 +232,7 @@ self-modifying-calculator/
 │   └── main.lisp             # Entry point
 ├── tests/                    # Test suites
 ├── cache/                    # Persistent cache data
+├── demo.lisp                 # Quick demo script
 ├── calculator.lsp            # Current CLISP calculator (backward compat)
 ├── README.md
 └── LICENSE

@@ -63,7 +63,28 @@
 - Fixed the `|2A|` undefined variable warning in `quadratic-roots` by binding `2a` in the outer `let`.
 - Added `tests/load-all-tests.lisp` as the single command to run all 55 tests.
 
-**Verification**: All 55 tests pass.
+**Verification**: All 60 tests pass (integration suite added after this entry).
+
+---
+
+## 2026-06-29 — Session 5 (continued): Demo Script, Implementation Notes, and README Polish
+
+**Change**: Added a self-contained demo script (`demo.lisp`), wrote `docs/notes/session-5-implementation-notes.md`, and polished the README with the demo command and benchmark timing note.
+
+**Affected Files**:
+- `demo.lisp` (created)
+- `docs/notes/session-5-implementation-notes.md` (created)
+- `README.md` (added demo command, benchmark timing note, project structure updates)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: A demo script gives new users a single-command way to see the calculator win. Implementation notes capture the incremental approach for future reference.
+
+**Details**:
+- `demo.lisp` loads the benchmark framework and runs the realistic renderer category, printing conventional time, SMC warm time, speedup, and cache stats.
+- Added `docs/notes/session-5-implementation-notes.md` documenting the LRU eviction, benchmark timing fix, test runner, integration tests, and remaining open items.
+- Updated README to include the quick demo command and a note on how short/medium series are measured.
+
+**Verification**: Demo runs successfully and shows a 3×+ speedup for the realistic renderer workload. All 60 tests pass.
 
 ---
 
