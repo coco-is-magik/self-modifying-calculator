@@ -30,6 +30,11 @@
 
 ;; Load the arithmetic module and any other modules by default.
 (register-arithmetic-operators)
+(register-algebra-operators)
+(register-calculus-operators)
+(register-linear-algebra-operators)
+(register-trigonometry-operators)
+(register-statistics-operators)
 
 ;; Note: this file is intended to be loaded as a library. The CLI entry point
 ;; is invoked explicitly by run.sh or by the user with (smc:main args).

@@ -42,27 +42,38 @@
 
 (defun run-benchmark-category (name ast-series &key (count 1000))
   "Run the conventional and SMC benchmark for a given AST series.
-   AST-SERIES is a list of AST nodes (not strings). Returns a benchmark-result."
-  (let ((cache (make-cache)))
-    ;; Conventional baseline
-    (let ((conv-time (measure-time (lambda ()
-                                    (dolist (ast ast-series)
-                                      (evaluate-node ast))))))
-      ;; SMC cold pass
-      (let ((cold-time (measure-time (lambda ()
-                                       (dolist (ast ast-series)
-                                         (evaluate ast :cache cache))))))
-        ;; SMC warm pass
-        (let ((warm-time (measure-time (lambda ()
-                                         (dolist (ast ast-series)
-                                           (evaluate ast :cache cache))))))
-          (make-benchmark-result
-           :category name
-           :count count
-           :conventional-time conv-time
-           :smc-cold-time cold-time
-           :smc-warm-time warm-time
-           :cache-stats (cache-statistics cache)))))))
+   AST-SERIES is a list of AST nodes (not strings). Returns a benchmark-result.
+   For short/medium series, each pass is repeated enough times to accumulate
+   measurable wall-clock time."
+  (let* ((cache (make-cache))
+         (repeats (cond ((<= count 100) 100)
+                        ((<= count 10000) 10)
+                        (t 1)))
+         (conv-time
+           (/ (measure-time (lambda ()
+                             (dotimes (r repeats)
+                               (dolist (ast ast-series)
+                                 (evaluate-node ast)))))
+              repeats))
+         (cold-time
+           (/ (measure-time (lambda ()
+                             (dotimes (r repeats)
+                               (dolist (ast ast-series)
+                                 (evaluate ast :cache cache)))))
+              repeats))
+         (warm-time
+           (/ (measure-time (lambda ()
+                             (dotimes (r repeats)
+                               (dolist (ast ast-series)
+                                 (evaluate ast :cache cache)))))
+              repeats)))
+    (make-benchmark-result
+     :category name
+     :count count
+     :conventional-time conv-time
+     :smc-cold-time cold-time
+     :smc-warm-time warm-time
+     :cache-stats (cache-statistics cache))))
 
 (defun print-summary-table (results)
   "Print a summary table of all benchmark results."

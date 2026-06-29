@@ -34,5 +34,33 @@
    :cache-set
    :cache-hashtable
    :*global-cache*
+   ;; Statistics
+   :mean
+   :variance
+   :std-dev
+   :median
+   :sum
+   :min
+   :max
+   ;; Calculus
+   :derivative
+   :integral
+   :simpson-integral
+   ;; Algebra
+   :quadratic
+   :quadratic-roots
+   :polynomial-eval
+   :factor
+   ;; Math module registration
+   :register-arithmetic-operators
+   :register-linear-algebra-operators
+   :register-trigonometry-operators
+   :register-algebra-operators
+   :register-calculus-operators
+   :register-statistics-operators
+   ;; Internal utilities exposed for tests / benchmarks
+   :run-all-benchmarks
+   :evaluate-node
+   :enable-operator-specialization
    ;; Test runner
    :run-all-tests))

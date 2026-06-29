@@ -39,4 +39,16 @@
     (let ((stats (cache-statistics cache)))
       (and (getf stats :size)
            (getf stats :hits)
-           (getf stats :misses)))))
+           (getf stats :misses))))
+
+  ;; LRU eviction with bounded cache
+  (let ((cache (make-cache 2)))
+    (cache-set cache (make-ast :+ (constant-node 1) (constant-node 2)) 3)
+    (cache-set cache (make-ast :+ (constant-node 3) (constant-node 4)) 7)
+    (cache-set cache (make-ast :+ (constant-node 5) (constant-node 6)) 11)
+    (= 2 (cache-size cache))
+    (multiple-value-bind (value found) (cache-get cache (make-ast :+ (constant-node 1) (constant-node 2)))
+      (declare (ignore value))
+      (not found))
+    (multiple-value-bind (value found) (cache-get cache (make-ast :+ (constant-node 5) (constant-node 6)))
+      (and found (= value 11)))))
