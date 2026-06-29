@@ -27,7 +27,7 @@
                  (parse-number (subseq string start i))))
              (read-identifier ()
                (let ((start i))
-                 (loop while (and (peek) (alpha-char-p (peek))) do (advance))
+                 (loop while (and (peek) (or (alpha-char-p (peek)) (digit-char-p (peek)))) do (advance))
                  (intern (string-upcase (subseq string start i)) :keyword))))
       (loop while (< i len) do
         (let ((c (peek)))
@@ -37,6 +37,7 @@
             ((alpha-char-p c) (push (read-identifier) tokens))
             ((member c '(#\+ #\- #\* #\/ #\^ #\=))
              (push (intern (string (advance)) :keyword) tokens))
+            ((char= c #\,) (push :comma tokens) (advance))
             ((char= c #\() (push :lparen tokens) (advance))
             ((char= c #\)) (push :rparen tokens) (advance))
             (t (error "Unexpected character: ~A" c))))))
@@ -109,6 +110,19 @@
      (parse-unary stream))
     (t (parse-primary stream))))
 
+(defun parse-arguments (stream)
+  "Parse a comma-separated list of expressions ending with :rparen."
+  (let ((args '()))
+    (loop
+      (when (eq (peek-token stream) :rparen)
+        (return (nreverse args)))
+      (push (parse-expression stream) args)
+      (let ((next (peek-token stream)))
+        (cond
+          ((eq next :rparen) (return (nreverse args)))
+          ((eq next :comma) (next-token stream))
+          (t (error "Expected comma or right paren, got ~A" next)))))))
+
 (defun parse-primary (stream)
   (let ((token (peek-token stream)))
     (cond
@@ -123,6 +137,12 @@
           (let ((expr (parse-expression stream)))
             (expect-token stream :rparen)
             expr))
+         ((eq (peek-token (make-token-stream :tokens (cdr (token-stream-tokens stream)))) :lparen)
+          (next-token stream)
+          (expect-token stream :lparen)
+          (let ((args (parse-arguments stream)))
+            (expect-token stream :rparen)
+            (apply #'make-ast token args)))
          (t (next-token stream)
             (variable-node token))))
       (t (error "Unexpected token: ~A" token)))))
@@ -132,8 +152,23 @@
 (defparameter *parse-cache* (make-hash-table :test 'equal)
   "Cache mapping input strings to parsed ASTs.")
 
+(defparameter *parse-cache-max-size* 1000
+  "Maximum number of entries allowed in `*parse-cache*`. 0 means unlimited.")
+
+(defun parse-cache-size ()
+  "Return the number of entries currently in the parse cache."
+  (hash-table-count *parse-cache*))
+
+(defun parse-cache-evict-if-needed ()
+  "Clear the parse cache if it has reached `*parse-cache-max-size*`."
+  (when (and (> *parse-cache-max-size* 0)
+             (>= (parse-cache-size) *parse-cache-max-size*))
+    (clear-parse-cache)))
+
 (defun parse (string)
-  "Parse STRING into an AST node. Results are cached for repeated strings."
+  "Parse STRING into an AST node. Results are cached for repeated strings.
+   If the cache exceeds `*parse-cache-max-size*`, it is cleared first."
+  (parse-cache-evict-if-needed)
   (or (gethash string *parse-cache*)
       (let ((ast (let ((stream (make-token-stream :tokens (tokenize string))))
                    (parse-expression stream))))

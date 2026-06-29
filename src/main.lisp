@@ -9,12 +9,16 @@
     (evaluate ast)))
 
 (defun main (&optional args)
-  "CLI entry point. ARGS is a list of command-line argument strings."
+  "CLI entry point. ARGS is a list of command-line argument strings.
+   If `*auto-persist-cache*' is true, the global cache is loaded on startup and saved on exit."
   (let ((args (or args (cdr sb-ext:*posix-argv*))))
+    (maybe-load-global-cache)
     (if args
         (let ((expression (join-strings args " ")))
           (handler-case
-              (format t "~A~%" (run-calculator expression))
+              (progn
+                (format t "~A~%" (run-calculator expression))
+                (maybe-save-global-cache))
             (error (e)
               (format *error-output* "Error: ~A~%" e)
               (sb-ext:exit :code 1))))

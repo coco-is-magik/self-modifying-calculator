@@ -159,3 +159,16 @@
 
 (defparameter *global-cache* (make-cache)
   "Default global cache used by the cache-aware evaluator.")
+
+(defparameter *auto-persist-cache* nil
+  "When true, `*global-cache*' is saved on process exit and loaded on startup.")
+
+(defun maybe-load-global-cache ()
+  "Load `*global-cache*' from `*cache-file-path*' if auto-persistence is enabled."
+  (when *auto-persist-cache*
+    (load-cache *global-cache* *cache-file-path*)))
+
+(defun maybe-save-global-cache ()
+  "Save `*global-cache*' to `*cache-file-path*' if auto-persistence is enabled."
+  (when *auto-persist-cache*
+    (save-cache *global-cache* *cache-file-path*)))

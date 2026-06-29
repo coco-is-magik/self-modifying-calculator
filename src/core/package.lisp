@@ -28,12 +28,23 @@
    :run-calculator
    :main
    :join-strings
-   ;; Cache
-   :make-cache
-   :cache-get
-   :cache-set
-   :cache-hashtable
-   :*global-cache*
+    ;; Cache
+    :make-cache
+    :cache-get
+    :cache-set
+    :cache-hashtable
+    :*global-cache*
+    :*auto-persist-cache*
+    :*cache-file-path*
+    :save-cache
+    :load-cache
+    :maybe-load-global-cache
+    :maybe-save-global-cache
+    ;; Parser
+    :parse
+    :clear-parse-cache
+    :parse-cache-size
+    :*parse-cache-max-size*
    ;; Statistics
    :mean
    :variance

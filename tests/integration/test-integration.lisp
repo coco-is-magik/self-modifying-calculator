@@ -40,4 +40,16 @@
 
   ;; Statistics operator works through the cache-aware evaluator
   (let ((cache (make-cache)))
-    (= 3.0 (evaluate (make-ast :mean (constant-node '(1 2 3 4 5))) :cache cache))))
+    (= 3.0 (evaluate (make-ast :mean (constant-node '(1 2 3 4 5))) :cache cache)))
+
+  ;; Automatic cache persistence loads and saves the global cache
+  (let* ((temp-path (merge-pathnames #p"cache/test-auto-persist.sexp" *default-pathname-defaults*))
+         (*cache-file-path* temp-path)
+         (*auto-persist-cache* t))
+    (cache-clear *global-cache*)
+    (evaluate (parse "5+5"))
+    (maybe-save-global-cache)
+    (let ((*global-cache* (make-cache)))
+      (cache-clear *global-cache*)
+      (maybe-load-global-cache)
+      (= 10 (cache-get *global-cache* (parse "5+5"))))))

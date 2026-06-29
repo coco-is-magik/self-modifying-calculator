@@ -6,8 +6,8 @@
 (in-package :self-modifying-calculator)
 
 (defparameter *generated-cache-file*
-  (merge-pathnames #p"src/generated/cache-literals.lisp" *default-pathname-defaults*)
-  "Path to the generated cache source file.")
+  (merge-pathnames #p"cache/generated/cache-literals.lisp" *default-pathname-defaults*)
+  "Path to the generated cache source file. Kept under cache/ so generated files do not mix with hand-written source code.")
 
 (defun write-cache-as-source (cache &optional (path *generated-cache-file*))
   "Write CACHE entries as a Lisp source file that populates the global cache
