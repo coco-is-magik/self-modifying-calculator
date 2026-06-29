@@ -75,7 +75,50 @@ clisp calculator.lsp 10/5
 # 2
 ```
 
-*(More sophisticated syntax with operator precedence, variables, and function support coming in future phases.)*
+### Function Call Syntax
+
+The parser now supports function-call syntax for trig, vector, and statistics functions:
+
+```bash
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(format t \"~A~%\" (smc:run-calculator \"sin(1.57079632679)\"))" \
+  --eval "(sb-ext:exit)"
+# 1.0
+
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(format t \"~A~%\" (smc:run-calculator \"dot(vec3(1,0,0), vec3(0,1,0))\"))" \
+  --eval "(sb-ext:exit)"
+# 0.0
+```
+
+### Unified Optimization Pipeline
+
+Enable all three levels of self-modification with one call:
+
+```lisp
+(smc:configure-optimization 3)  ; Level 1 cache + Level 2 specialization + Level 3 source rewriting
+```
+
+- Level 1: runtime cache (always active)
+- Level 2: operator specialization via `fdefinition`
+- Level 3: source rewriting to `cache/generated/cache-literals.lisp` + automatic persistence across sessions
+
+### Automatic Cache Persistence
+
+Set `smc:*auto-persist-cache*` to `t` (or use `configure-optimization 3`) and the global cache is loaded on startup and saved on exit:
+
+```bash
+sbcl --noinform \
+  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
+  --eval "(asdf:load-system :self-modifying-calculator)" \
+  --eval "(setf smc:*auto-persist-cache* t)" \
+  --eval "(smc:main '(\"2+3\"))" \
+  --eval "(sb-ext:exit)"
+```
 
 ---
 
@@ -121,8 +164,11 @@ The project is organized into implementation phases:
 - [x] Integration tests
 - [x] Cache eviction / size bounding (LRU policy added)
 - [x] Benchmarks and demos (per-category benchmark suite exists)
-- [ ] Revisit compiled cache dispatch with a smarter data structure
-- [ ] Unify the 3-level optimization into an automatic pipeline
+- [x] Revisit compiled cache dispatch with a smarter data structure (limited to 100 clauses; falls back to EQ hash table)
+- [x] Unify the 3-level optimization into an automatic pipeline (`configure-optimization`)
+- [x] Function call syntax in the string parser (`sin(x)`, `dot(a,b)`, `vec3(x,y,z)`)
+- [x] Automatic cache persistence on startup/shutdown
+- [x] Parser cache eviction with configurable max size
 
 > **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
@@ -222,7 +268,7 @@ self-modifying-calculator/
 ├── docs/
 │   ├── plan.md              # Full architectural plan (source of truth)
 │   ├── HANDOFF.md           # Session-by-session development log
-│   ├── CHANGELOG.md         # Change history
+│   ├── CHANGELOG.md         # Change history (created)
 │   ├── KNOWN-ISSUES.md      # Open gaps and technical debt
 │   └── notes/               # Detailed implementation notes
 ├── src/

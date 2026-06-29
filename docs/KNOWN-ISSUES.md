@@ -12,10 +12,10 @@
    - **Impact**: The calculator beats conventional evaluation on realistic workloads but falls short on cheap arithmetic.
    - **Planned resolution**: Continue optimizing the dispatch path; consider cache eviction to keep hot entries; revisit compiled dispatch with a non-linear structure.
 
-2. **Compiled cache dispatch disabled for large caches** (2026-06-28)
-   - **Description**: `src/core/dispatch-compiler.lisp` exists but produces a linear `cond` scan. For medium/large caches the scan is slower than the EQ hash table and causes control-stack exhaustion during compilation for very large caches.
-   - **Impact**: The compiled dispatch path cannot be enabled by default.
-   - **Planned resolution**: Revisit with a smarter structure (e.g., trie, hash-based dispatch, or limited per-operator dispatch tables) that avoids linear scan and stack overflow.
+2. **Compiled cache dispatch limited to small caches** (2026-06-28)
+   - **Description**: `src/core/dispatch-compiler.lisp` now limits compiled dispatch to caches with at most `*compiled-dispatch-max-clauses*` entries (default 100). Larger caches fall back to the EQ hash table, avoiding the stack overflow and slow linear scan caused by thousands of cond clauses. Cached list values are quoted in the generated code so they are returned as literals rather than function calls.
+   - **Impact**: The compiled dispatch path is now safe to enable by default for small caches; large caches continue to use the fast EQ hash table.
+   - **Resolution**: Added `*compiled-dispatch-max-clauses*`; re-enabled compiled dispatch in `evaluate-node-cached`; disabled recompilation when the cache grows beyond the limit. See `src/core/dispatch-compiler.lisp` and `src/core/evaluator.lisp`.
 
 3. **Short/medium benchmark timing noise** (2026-06-28)
    - **Description**: Short (100) and medium (10,000) calculation series are now measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count. Timings are now measurable, though long series remain the most reliable source of speedup numbers.
@@ -45,10 +45,10 @@
 
 ## Architecture
 
-7. **No unified 3-level optimization pipeline** (2026-06-28)
-   - **Description**: The three levels of self-modification (runtime cache, runtime specialization, source-level rewriting) exist but must be enabled manually. There is no automatic promotion from Level 1 → Level 2 → Level 3.
-   - **Impact**: Users must understand the internals to get the full benefit.
-   - **Planned resolution**: Design a single configuration API that enables the appropriate levels automatically based on workload characteristics.
+7. **Unified 3-level optimization pipeline implemented** (2026-06-28)
+   - **Description**: `configure-optimization` in `src/core/pipeline.lisp` provides a single API to enable the three levels of self-modification: Level 1 (runtime cache), Level 2 (operator specialization), and Level 3 (source-level rewriting + automatic persistence). A cache-set hook drives Level 2 specialization and Level 3 rewrites automatically.
+   - **Impact**: Users can now enable all optimization levels with one call instead of manually configuring each mechanism.
+   - **Resolution**: Created `src/core/pipeline.lisp` with `configure-optimization`, added it to `self-modifying-calculator.asd`, and exported the public symbols. Test added in `tests/integration/test-integration.lisp`.
 
 8. **Function call syntax implemented in the parser** (2026-06-28)
    - **Description**: The string parser now supports function-call syntax such as `sin(x)`, `dot(a,b)`, and `vec3(x,y,z)`. Identifiers can include digits (e.g., `vec3`).
