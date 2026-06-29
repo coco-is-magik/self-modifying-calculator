@@ -52,4 +52,11 @@
     (let ((*global-cache* (make-cache)))
       (cache-clear *global-cache*)
       (maybe-load-global-cache)
-      (= 10 (cache-get *global-cache* (parse "5+5"))))))
+      (= 10 (cache-get *global-cache* (parse "5+5")))))
+
+  ;; Unified pipeline configuration can be set to Level 1/2/3
+  (let ((*cache-set-hook* nil)
+        (*auto-persist-cache* nil)
+        (*pipeline-level* 1))
+    (configure-optimization 1)
+    (= 1 *pipeline-level*)))

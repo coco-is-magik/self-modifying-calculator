@@ -56,19 +56,24 @@
 
 (defun evaluate-node-cached (node &optional (cache *global-cache*))
   "Evaluate a single AST node using CACHE. Caches whole and sub-expression results.
-   The compiled dispatch is currently disabled for large caches because
-   generating a function with tens of thousands of cond clauses causes stack
-   overflow during compilation. The EQ hash table is fast enough on its own."
-  (multiple-value-bind (value found) (cache-get cache node)
-    (if found
-        (progn
-          (incf (cache-hits cache))
-          value)
-        (progn
-          (incf (cache-misses cache))
-          (let ((result (evaluate-node-uncached node cache)))
-            (cache-set cache node result)
-            result)))))
+   First tries a compiled dispatch for small caches, then falls back to the EQ
+   hash table."
+  (multiple-value-bind (cvalue cfound) (compiled-cache-get cache node)
+    (cond
+      (cfound
+       (incf (cache-hits cache))
+       cvalue)
+      (t
+       (multiple-value-bind (value found) (cache-get cache node)
+         (if found
+             (progn
+               (incf (cache-hits cache))
+               value)
+             (progn
+               (incf (cache-misses cache))
+               (let ((result (evaluate-node-uncached node cache)))
+                 (cache-set cache node result)
+                 result))))))))
 
 (defun evaluate-node-uncached (node cache)
   "Evaluate NODE without looking it up in CACHE, but still using cache for sub-expressions.

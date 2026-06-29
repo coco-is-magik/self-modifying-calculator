@@ -58,7 +58,8 @@
 (defun cache-set (cache key value)
   "Store VALUE for KEY in CACHE. Only ground expressions are cached.
    KEY is interned to ensure EQ-based cache lookups work correctly.
-   If the cache has a positive MAX-SIZE and is full, evict the LRU entry."
+   If the cache has a positive MAX-SIZE and is full, evict the LRU entry.
+   Calls `*cache-set-hook*' after a successful set."
   (let ((key (intern-ast key)))
     (when (ast-ground-p key)
       (let ((max-size (cache-max-size cache)))
@@ -69,6 +70,8 @@
         (setf (gethash key (cache-table cache)) value)
         (cache-touch cache key)
         (setf (cache-compiled-lookup-dirty cache) t)
+        (when *cache-set-hook*
+          (funcall *cache-set-hook* cache key value))
         value))))
 
 (defun cache-contains-p (cache key)
@@ -159,6 +162,9 @@
 
 (defparameter *global-cache* (make-cache)
   "Default global cache used by the cache-aware evaluator.")
+
+(defvar *cache-set-hook* nil
+  "Optional function called after a successful cache-set. Receives (cache key value).")
 
 (defparameter *auto-persist-cache* nil
   "When true, `*global-cache*' is saved on process exit and loaded on startup.")
