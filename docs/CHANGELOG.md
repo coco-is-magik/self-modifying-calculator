@@ -4,9 +4,71 @@
 >
 > **How to use**: After making a change (file edits, new features, refactors, bug fixes, plan updates), append a new entry at the top with: date, change summary, affected files, rationale, and any notes for the future.
 
+
+## 2026-06-28 — Session 5: Documentation Drift Correction and Phase 5 Math Modules
+
+**Change**: Fixed factual drift in `docs/plan.md` and `README.md`, completed the three missing Phase 5 math modules (algebra, calculus, statistics), and created a dated `docs/KNOWN-ISSUES.md` tracking all remaining gaps.
+
+**Affected Files**:
+- `docs/plan.md` (updated to reflect implemented state: no Quicklisp, recursive-descent parser, 100,000-calculation long series, corrected phase structure)
+- `README.md` (updated roadmap, added Phase 6 in-progress items, linked `docs/KNOWN-ISSUES.md`)
+- `src/core/package.lisp` (expanded exports)
+- `src/main.lisp` (registered new math modules)
+- `self-modifying-calculator.asd` (added new math modules)
+- `src/math/algebra.lisp` (created)
+- `src/math/calculus.lisp` (created)
+- `src/math/statistics.lisp` (created)
+- `tests/math/test-algebra.lisp` (created)
+- `tests/math/test-calculus.lisp` (created)
+- `tests/math/test-statistics.lisp` (created)
+- `docs/KNOWN-ISSUES.md` (created)
+- `docs/repo-status-report.md` (updated status)
+- `docs/HANDOFF.md` (updated with Session 5 entry)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: The documentation had drifted from the implemented code, and Phase 5 was marked "In Progress" without any code started. This session reconciles docs with reality and completes the planned math module coverage so the project can move into Phase 6 polish work.
+
+**Details**:
+- New algebra operators: `:quadratic`, `:quadratic-roots`, `:polynomial-eval`, `:factor`.
+- New calculus operators: `:derivative`, `:integral`, `:simpson-integral` (numerical, operating on polynomial coefficient lists).
+- New statistics operators: `:mean`, `:variance`, `:std-dev`, `:median`, `:min`, `:max`, `:sum`.
+- Each module follows the existing registration pattern: helper functions + `register-*-operators` + auto-registration on load.
+- Expanded `src/core/package.lisp` exports to include new operators and internal utilities previously accessed via `smc::`.
+
+**Notes for Future**: Phase 6 items remain open. See `docs/KNOWN-ISSUES.md` for the complete, dated list.
+
+---
+
+## 2026-06-29 — Session 5: Cache Eviction, Benchmark Timing, and Test Runner
+
+**Change**: Added LRU cache eviction, improved short/medium benchmark timing accuracy, fixed an algebra compiler warning, and created a single test runner script.
+
+**Affected Files**:
+- `src/core/cache.lisp` (updated with `max-size`, `access-counter`, `last-access`, LRU eviction)
+- `tests/core/test-cache.lisp` (added LRU eviction test)
+- `tests/benchmarks/benchmark-framework.lisp` (added repeated passes for short/medium series)
+- `src/math/algebra.lisp` (fixed `quadratic-roots` variable warning)
+- `tests/load-all-tests.lisp` (created)
+- `tests/integration/test-integration.lisp` (created)
+- `README.md` (updated test command, roadmap, and performance notes)
+- `docs/KNOWN-ISSUES.md` (marked cache eviction and README test command as resolved)
+- `docs/CHANGELOG.md` (this file)
+
+**Rationale**: Cache eviction prevents unbounded memory growth in long-running sessions. The test runner simplifies verification. The benchmark timing fix makes short/medium measurements more reliable.
+
+**Details**:
+- `make-cache` now accepts an optional `max-size` argument; when full, `cache-set` evicts the least recently used entry.
+- `cache-get` and `cache-set` update the access counter to maintain LRU order.
+- Short benchmarks run 100× and medium benchmarks run 10× to accumulate measurable time.
+- Fixed the `|2A|` undefined variable warning in `quadratic-roots` by binding `2a` in the outer `let`.
+- Added `tests/load-all-tests.lisp` as the single command to run all 55 tests.
+
+**Verification**: All 55 tests pass.
+
 ---
 
 ## 2026-06-26 — Session 4: Performance Optimization, Vector Math, and Refactored Benchmarks
+
 
 **Change**: Implemented canonical AST interning + EQ hash table, added vector and trigonometry modules, refactored the benchmark suite into per-category benchmarks, and removed the explicit `rewrite-with-cache` overhead from the hot path.
 

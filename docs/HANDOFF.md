@@ -259,3 +259,44 @@ Session 3 left the project with a performance problem: the cache was slower than
 - Update `README.md` with the new benchmark usage and performance results.
 
 ---
+
+---
+
+## Session 5 — Documentation Drift Correction & Phase 5 Math Modules
+
+**Date**: 2026-06-28
+
+**Completed**:
+- Corrected factual drift in `docs/plan.md`: removed Quicklisp references, updated parser description to recursive-descent, removed the planned `cli.lisp` from the module tree, fixed long series length from 1,000,000 to 100,000, updated benchmarking file structure, and restructured phases to match actual implementation (Phases 1–5 complete, Phase 6 in progress).
+- Updated `README.md` roadmap to mark Phase 5 complete and Phase 6 in progress; added link to new `docs/KNOWN-ISSUES.md`.
+- Expanded `src/core/package.lisp` exports to include new math operators and commonly used internal functions (`run-all-benchmarks`, `evaluate-node`, `enable-operator-specialization`, math module registration functions).
+- Created three new math modules to complete Phase 5:
+  - `src/math/algebra.lisp` — `:quadratic`, `:quadratic-roots`, `:polynomial-eval`, `:factor`
+  - `src/math/calculus.lisp` — `:derivative`, `:integral`, `:simpson-integral`
+  - `src/math/statistics.lisp` — `:mean`, `:variance`, `:std-dev`, `:median`, `:min`, `:max`, `:sum`
+- Added unit tests for the new modules in `tests/math/`.
+- Updated `self-modifying-calculator.asd` and `src/main.lisp` to load and register the new modules.
+- Created `docs/KNOWN-ISSUES.md` to catalog all identified gaps with dates, impact, and planned resolutions.
+- Updated `docs/repo-status-report.md` to reflect the completed Phase 5 and reference `docs/KNOWN-ISSUES.md`.
+
+**Rationale**:
+The documentation had drifted from the implemented code (Quicklisp, Pratt parser, separate `cli.lisp`, incorrect benchmark lengths, mismatched phase numbering). Phase 5 was listed as "In Progress" but no work had started. This session brings the documentation back in sync with reality, completes the planned math modules, and creates a durable, dated record of remaining gaps so the next work session can be focused.
+
+**Current State**:
+- Phases 1–5 are now fully implemented and tested.
+- 54 tests are expected (38 from prior sessions + 16 new algebra/calculus/statistics tests; exact count verified by test run below).
+- All known limitations are documented in `docs/KNOWN-ISSUES.md`.
+
+**Blockers / Known Limitations**:
+- Performance targets still not met (1.17×–3.50× vs 5.0× target).
+- Compiled cache dispatch remains disabled for large caches.
+- No cache eviction, automatic persistence, or function-call syntax yet.
+- Test command in README still uses multiple `--eval` loads.
+
+**Next Steps** (for Session 6):
+- Implement cache eviction / size bounding.
+- Simplify test invocation with `tests/load-all-tests.lisp` and update README.
+- Add integration tests for full parse → evaluate → cache → persist workflows.
+- Revisit compiled cache dispatch with a smarter data structure.
+- Unify the 3-level optimization pipeline.
+

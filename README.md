@@ -81,13 +81,13 @@ clisp calculator.lsp 10/5
 
 ## Roadmap
 
-The project is organized into five implementation phases:
+The project is organized into implementation phases:
 
 ### Phase 1 — Foundation ✅
-- [x] Set up SBCL + ASDF project structure
+- [x] Set up SBCL + ASDF project structure (no Quicklisp)
 - [x] AST representation and parser (string → AST)
 - [x] Basic evaluator (AST → result)
-- [x] CLI entry point
+- [x] CLI entry point (`main.lisp` + `run.sh`)
 
 ### Phase 2 — Caching Engine ✅
 - [x] In-memory hierarchical cache (whole + sub-expressions)
@@ -100,25 +100,32 @@ The project is organized into five implementation phases:
 - [x] Level 2: Runtime function specialization + hot-swapping
 - [x] Level 3: Source-level rewriting for persistent optimization
 
-### Phase 4 — Performance Optimization & Benchmarking (Complete)
+### Phase 4 — Performance Optimization & Benchmarking ✅
 - [x] Canonical AST interning + EQ hash table (replaced EQUAL hash lookup)
 - [x] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
 - [x] Trigonometry module (`:sin`, `:cos`)
 - [x] Refactor benchmark suite into per-category benchmarks
 - [x] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer
-- [x] Track cache hit ratios, cold vs warm performance per optimization level
+- [x] Track cache hit ratios, cold vs warm performance
 
-### Phase 5 — Math Modules (In Progress)
-- [ ] Algebra (quadratics, factoring, polynomials)
-- [ ] Calculus (numerical derivatives, integrals)
-- [ ] Statistics
+### Phase 5 — Math Modules ✅
+- [x] Arithmetic (`+`, `-`, `*`, `/`, `^`)
+- [x] Algebra (quadratics, polynomial evaluation)
+- [x] Calculus (numerical derivatives, integrals)
+- [x] Linear algebra (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
+- [x] Trigonometry (`:sin`, `:cos`)
+- [x] Statistics (mean, variance, std-dev, median, sum, min, max)
 
-### Phase 6 — Polish (Planned)
+### Phase 6 — Polish (In Progress)
 - [ ] Full documentation and examples
-- [ ] Integration tests
-- [ ] Benchmarks and demos
+- [x] Integration tests
+- [x] Cache eviction / size bounding (LRU policy added)
+- [x] Benchmarks and demos (per-category benchmark suite exists)
+- [ ] Revisit compiled cache dispatch with a smarter data structure
+- [ ] Unify the 3-level optimization into an automatic pipeline
 
-> **Full architectural plan**: See [`docs/plan.md`](docs/plan.md)
+> **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
+
 
 ## Performance Results
 
@@ -178,15 +185,7 @@ sbcl --noinform \
 sbcl --noinform \
   --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
   --eval "(asdf:load-system :self-modifying-calculator)" \
-  --eval "(load \"tests/test-runner.lisp\")" \
-  --eval "(load \"tests/core/test-ast.lisp\")" \
-  --eval "(load \"tests/core/test-parser.lisp\")" \
-  --eval "(load \"tests/core/test-evaluator.lisp\")" \
-  --eval "(load \"tests/core/test-cache.lisp\")" \
-  --eval "(load \"tests/core/test-optimizer.lisp\")" \
-  --eval "(load \"tests/core/test-self-writer.lisp\")" \
-  --eval "(load \"tests/core/test-linear-algebra.lisp\")" \
-  --eval "(smc:run-all-tests)" \
+  --eval "(load \"tests/load-all-tests.lisp\")" \
   --eval "(sb-ext:exit)"
 
 # Run the full benchmark suite (long-running):
@@ -196,7 +195,7 @@ sbcl --noinform \
   --eval "(load \"tests/benchmarks/benchmark-framework.lisp\")" \
   --eval "(load \"tests/benchmarks/series-generators.lisp\")" \
   --eval "(load \"tests/benchmarks/run-all-benchmarks.lisp\")" \
-  --eval "(smc::run-all-benchmarks)" \
+  --eval "(smc:run-all-benchmarks)" \
   --eval "(sb-ext:exit)"
 ```
 

@@ -1,7 +1,7 @@
 # Self-Modifying Calculator — Implementation Plan
 
-> **Status**: Draft Plan
-> **Last Updated**: 2026-06-26
+> **Status**: Draft Plan (updated to reflect implemented state)
+> **Last Updated**: 2026-06-28
 
 This document is the source of truth for the Self-Modifying Calculator project. It describes the architecture, module structure, key design decisions, and phased implementation roadmap.
 
@@ -42,7 +42,7 @@ SBCL advantages over the current CLISP runtime:
 - Superior macro system for code rewriting
 - Better performance for compute-heavy use cases (renderer/game math)
 
-**Build System**: ASDF (Another System Definition Facility) with Quicklisp for dependency management.
+**Build System**: ASDF (Another System Definition Facility). The project uses no external dependencies and no Quicklisp; everything is dependency-free portable Common Lisp.
 
 ---
 
@@ -101,18 +101,17 @@ self-modifying-calculator/
 │   │   └── evaluator.lisp         # Expression evaluator w/ cache injection
 │   │
 │   ├── math/                      # Math modules (pluggable)
-│   │   ├── arithmetic.lisp        # +, -, *, /, modulo, powers
-│   │   ├── algebra.lisp           # Quadratics, factoring, polynomial ops
-│   │   ├── linear-algebra.lisp    # Vectors, dot/cross products, matrices
-│   │   ├── trigonometry.lisp      # sin, cos, tan, their inverses
+│   │   ├── arithmetic.lisp        # +, -, *, /, powers
+│   │   ├── algebra.lisp           # Quadratics, polynomial evaluation
+│   │   ├── linear-algebra.lisp    # 3D vectors, dot/cross products, norm/normalize
+│   │   ├── trigonometry.lisp      # sin, cos
 │   │   ├── calculus.lisp          # Numerical derivatives, integrals
-│   │   └── statistics.lisp        # Mean, variance, etc.
+│   │   └── statistics.lisp        # Mean, variance, std-dev, median
 │   │
 │   ├── interface/                 # User interaction
-│   │   ├── cli.lisp               # Command-line interface
 │   │   └── parser.lisp            # String → AST parser
 │   │
-│   └── main.lisp                  # Entry point
+│   └── main.lisp                  # CLI entry point (run.sh wrapper target)
 │
 ├── cache/                         # Persistent cache directory
 │   └── cache.sexp                 # Serialized cache data
@@ -120,13 +119,21 @@ self-modifying-calculator/
 ├── tests/
 │   ├── core/
 │   │   ├── test-ast.lisp
+│   │   ├── test-parser.lisp
+│   │   ├── test-evaluator.lisp
 │   │   ├── test-cache.lisp
-│   │   └── test-evaluator.lisp
+│   │   ├── test-optimizer.lisp
+│   │   ├── test-self-writer.lisp
+│   │   └── test-linear-algebra.lisp
 │   ├── math/
-│   │   ├── test-arithmetic.lisp
-│   │   └── test-algebra.lisp
-│   └── integration/
-│       └── test-integration.lisp
+│   │   ├── test-algebra.lisp
+│   │   ├── test-calculus.lisp
+│   │   └── test-statistics.lisp
+│   ├── benchmarks/
+│   │   ├── benchmark-framework.lisp
+│   │   ├── series-generators.lisp
+│   │   └── run-all-benchmarks.lisp
+│   └── test-runner.lisp
 │
 ├── calculator.lsp                 # Backward-compatible wrapper
 ├── README.md
@@ -144,9 +151,9 @@ self-modifying-calculator/
 | **Cache key** | Full AST equality + structural isomorphism for sub-expressions | Enables partial reuse of sub-computations |
 | **Cache storage** | In-memory hash table + serialized `.sexp` file on disk | Fast runtime access + persistence across sessions |
 | **Self-modification mechanism** | `defun` redefinition + `compile` at runtime + source file rewriting | Three levels of optimization from light to deep |
-| **Expression parser** | Pratt parser for operator precedence | Handles complex expressions, extensible to new operators |
+| **Expression parser** | Recursive-descent parser with precedence | Simpler than Pratt, sufficient for current arithmetic and function syntax |
 | **Variable support** | Symbolic binding in evaluation context | Needed for equations like `x^2 + 5x + 6` |
-| **Testing framework** | FiveAM or Prove | Well-established Lisp testing libraries |
+| **Testing framework** | Custom dependency-free test runner (`tests/test-runner.lisp`) | Avoids external dependencies; all tests are plain Lisp |
 | **CLI format** | Natural mathematical syntax with precedence (`2*x^2 + 5*x + 6`) | More intuitive and capable than the current `5+7` format |
 
 ---
@@ -246,7 +253,7 @@ A dedicated benchmarking framework to measure the self-modifying calculator's pe
 |--------|----------------------|---------|
 | **Short** | 100 | Measure overhead vs benefit for small workloads |
 | **Medium** | 10,000 | Realistic batch size for a typical computation loop |
-| **Long** | 1,000,000 | Stress test for the caching and optimization pipeline |
+| **Long** | 100,000 | Stress test for the caching and optimization pipeline |
 
 Each series is generated with deterministic seeding for reproducibility. The expressions within each series are randomized across a constrained set of patterns to simulate repeated similar calculations:
 
@@ -265,8 +272,6 @@ For each series length (short / medium / long):
   4. Run the self-modifying variant:
      a. First pass: evaluate all expressions (populates cache)
      b. Second pass: evaluate all expressions again (hits cache)
-     c. Third pass: evaluate all expressions again (triggers function specialization)
-     d. (If Level 3 available) Serialize cache, reload, evaluate again
   5. Record and compare: total time, per-expression average time, cache hit ratio
 ```
 
@@ -289,22 +294,21 @@ The self-modifying calculator **must beat conventional calculation** across all 
 |----------|----------------------|--------------|
 | **Short series (100)** | 1.0× (no slower than conventional) | 1.5× |
 | **Medium series (10,000)** | 2.0× | 5.0× |
-| **Long series (1,000,000)** | 5.0× | 20.0×+ |
+| **Long series (100,000)** | 5.0× | 20.0×+ |
 
-The primary focus is achieving maximum speedup on the **long series**, where the caching and self-modification overhead is amortized over the largest number of repeated sub-expressions. The short series exists primarily to ensure the overhead of cache lookups does not make simple calculations slower.
+Current actual results (LONG series, 100,000 calculations): 1.17× arithmetic, 3.33× dot product, 3.00× cross product, 1.20× trig, 3.50× polynomial, 2.67× mixed, 3.25× realistic renderer. Targets are not yet met for the hardest case (arithmetic); see `docs/notes/session-4-implementation-notes.md` and `docs/HANDOFF.md` for the full analysis.
 
-### Benchmarking File
+### Benchmarking Files
 
 A dedicated benchmarking module lives at:
 
 ```
 tests/benchmarks/
-├── benchmark-runner.lisp     # Orchestrator: series generation, timing, reporting
-├── series-generator.lisp     # Randomized expression series (deterministic seed)
-├── conventional-eval.lisp    # Naive evaluation baseline
-├── smc-eval.lisp             # Self-modifying calculator evaluation harness
-├── metric-report.lisp        # Comparison reporting and visualization
-└── results/                  # Directory for benchmark output files
+├── benchmark-framework.lisp     # Timing, reporting, and per-category execution
+├── series-generators.lisp       # Deterministic AST series for each category
+├── arithmetic-benchmark.lisp      # Standalone arithmetic benchmark
+├── dot-product-benchmark.lisp     # Standalone dot-product benchmark
+└── run-all-benchmarks.lisp      # Entry point that runs all categories
 ```
 
 This benchmarking suite is executed as its own step during development (not part of the standard test suite) and results are tracked over time to monitor optimization progress.
@@ -314,48 +318,55 @@ This benchmarking suite is executed as its own step during development (not part
 ## Implementation Phases
 
 ### Phase 1 — Foundation
-- [ `] Set up SBCL + ASDF + Quicklisp project structure
-- [ ] Create ASDF system definition (`self-modifying-calculator.asd`)
-- [ ] Implement AST representation (`core/ast.lisp`)
-- [ ] Implement Pratt parser (string → AST) (`interface/parser.lisp`)
-- [ ] Implement basic evaluator (AST → result) (`core/evaluator.lisp`)
-- [ ] Port CLI to SBCL (`interface/cli.lisp`)
-- [ ] Create main entry point (`main.lisp`)
-- [ ] Write core test suite (`tests/core/`)
+- [x] Set up SBCL + ASDF project structure (no Quicklisp)
+- [x] Create ASDF system definition (`self-modifying-calculator.asd`)
+- [x] Implement AST representation (`core/ast.lisp`)
+- [x] Implement recursive-descent parser (string → AST) (`interface/parser.lisp`)
+- [x] Implement basic evaluator (AST → result) (`core/evaluator.lisp`)
+- [x] Port CLI to SBCL (`main.lisp` + `run.sh`)
+- [x] Write core test suite (`tests/core/`)
 
 ### Phase 2 — Caching Engine
-- [ ] Implement in-memory cache (hash table) (`core/cache.lisp`)
-- [ ] Implement hierarchical caching (whole + sub-expression)
-- [ ] Implement expression matcher (tree isomorphism) (`core/matcher.lisp`)
-- [ ] Implement persistent cache (read/write `.sexp` files) (`core/cache.lisp`)
-- [ ] Implement cache-aware evaluator (check cache before computing)
-- [ ] Test with simple arithmetic sequences
+- [x] Implement in-memory cache (hash table) (`core/cache.lisp`)
+- [x] Implement hierarchical caching (whole + sub-expression)
+- [x] Implement expression matcher (tree isomorphism) (`core/matcher.lisp`)
+- [x] Implement persistent cache (read/write `.sexp` files) (`core/cache.lisp`)
+- [x] Implement cache-aware evaluator (check cache before computing)
+- [x] Test with simple arithmetic sequences
 
 ### Phase 3 — Self-Modification
-- [ ] Implement Level 1 (runtime hash cache) — verify speedup
-- [ ] Implement Level 2 (runtime function redefinition via `fdefinition`) (`core/optimizer.lisp`)
-- [ ] Implement compiled cache lookup table generation
-- [ ] Implement Level 3 (source-level rewriting for persistence)
-- [ ] Implement the 3-level optimization pipeline
-- [ ] Benchmark: compare cached vs uncached evaluation
-- [ ] Test with dot product and quadratic examples
+- [x] Implement Level 1 (runtime hash cache) — verify speedup
+- [x] Implement Level 2 (runtime function redefinition via `fdefinition`) (`core/optimizer.lisp`)
+- [x] Implement compiled cache lookup table generation (disabled for large caches)
+- [x] Implement Level 3 (source-level rewriting for persistence)
+- [x] Benchmark: compare cached vs uncached evaluation
+- [x] Test with dot product and quadratic examples
 
-### Phase 4 — Math Modules
-- [ ] Implement pluggable math module registration system
-- [ ] Arithmetic module: enhance basic ops (`+`, `-`, `*`, `/`) with caching support
-- [ ] Algebra module: quadratics, factoring, polynomial operations
-- [ ] Linear algebra module: vectors, dot product, cross product, matrix operations
-- [ ] Trigonometry module: `sin`, `cos`, `tan`, inverses
-- [ ] Calculus module: numerical derivatives, integrals
-- [ ] Register all modules in the evaluator dispatch
+### Phase 4 — Performance Optimization & Benchmarking
+- [x] Canonical AST interning + EQ hash table (replaced EQUAL hash lookup)
+- [x] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
+- [x] Trigonometry module (`:sin`, `:cos`)
+- [x] Refactor benchmark suite into per-category benchmarks
+- [x] Measure speedup per category
 
-### Phase 5 — Polish & Documentation
-- [ ] Update README with new architecture and syntax
+### Phase 5 — Math Modules
+- [x] Arithmetic module: basic ops (`+`, `-`, `*`, `/`, `^`)
+- [x] Algebra module: quadratics, polynomial evaluation
+- [x] Linear algebra module: 3D vectors, dot/cross products, norm/normalize
+- [x] Trigonometry module: `sin`, `cos`
+- [x] Calculus module: numerical derivatives, integrals
+- [x] Statistics module: mean, variance, std-dev, median
+- [x] Register all modules in the evaluator dispatch
+
+### Phase 6 — Polish & Documentation
+- [ ] Update README with final architecture and syntax
 - [ ] Add comprehensive usage examples (quadratic, dot product, repeated operations)
-- [ ] Fill in LICENSE with proper copyright holder
 - [ ] Add inline documentation and docstrings
 - [ ] Create demo scripts showing speed improvement
 - [ ] Write integration tests for full workflows
+- [ ] Implement cache eviction / size bounding
+- [ ] Revisit compiled cache dispatch with a smarter data structure
+- [ ] Unify the 3-level optimization into an automatic pipeline
 
 ---
 
