@@ -3,6 +3,10 @@ cache/generated/
 cache/cache.sexp
 cache/test-*.sexp
 
+# Benchmark output files (default /tmp, but ignore any local copies)
+benchmark-results*.sexp
+smc-benchmark-*.out
+
 # Common Lisp compiled files
 *.fasl
 *.fasl

@@ -145,11 +145,13 @@ The project is organized into implementation phases:
 
 ### Phase 4 — Performance Optimization & Benchmarking ✅
 - [x] Canonical AST interning + EQ hash table (replaced EQUAL hash lookup)
-- [x] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`)
+- [x] Vector / linear algebra module (`:vec3`, `:dot`, `:cross`, `:norm`, `:normalize`, `:vec3-add`, `:mat4x4-mul`)
 - [x] Trigonometry module (`:sin`, `:cos`)
 - [x] Refactor benchmark suite into per-category benchmarks
-- [x] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer
+- [x] Measure speedup per category: arithmetic, dot product, cross product, trig, polynomial, mixed, realistic renderer, matrix multiply, Blinn-Phong, end-to-end parse+eval
 - [x] Track cache hit ratios, cold vs warm performance
+- [x] Multi-trial aggregation with median + range
+- [x] Isolated optimization-level benchmarks (baseline, L1, L1.5, L2)
 
 ### Phase 5 — Math Modules ✅
 - [x] Arithmetic (`+`, `-`, `*`, `/`, `^`)
@@ -191,10 +193,12 @@ The cache-aware evaluator now outperforms conventional evaluation on realistic w
 | Polynomial | **1.8–8.6×** |
 | Mixed | **2.0–5.2×** |
 | Realistic Renderer | **5.0–8.0×** |
+| Matrix Multiply | **2.5–8.0×** |
+| Blinn-Phong | **3.5–5.5×** |
 
-Arithmetic remains the hardest category because the operations themselves are so cheap. The priority category, **realistic renderer**, now consistently exceeds the 5× minimum target. Dot, cross, polynomial, and trig are often above 5× but are noisy; mixed is still the second-weakest realistic scenario. See `docs/notes/performance-profiling.md` for the full analysis and next candidate optimizations.
+Arithmetic remains the hardest category because the operations themselves are so cheap. The priority category, **realistic renderer**, now consistently exceeds the 5× minimum target. Dot, cross, polynomial, trig, matrix multiply, and Blinn-Phong are often above 5× but can be noisy; mixed is still the second-weakest realistic scenario. See `docs/notes/performance-profiling.md` for the full analysis and next candidate optimizations.
 
-Short and medium series are measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count; long series are the most reliable source of speedup numbers.
+Benchmarks now use CPU time (`get-internal-run-time`), GC isolation between phases, and multi-trial aggregation across random seeds. Short and medium series are measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count; long series are the most reliable source of speedup numbers.
 
 See `docs/plan.md`, `docs/HANDOFF.md`, and `docs/notes/session-4-implementation-notes.md` for the full analysis and implementation details.
 
@@ -235,8 +239,11 @@ sbcl --noinform \
 # Run the quick demo:
 ./scripts/run-demo.sh
 
-# Run the full benchmark suite (long-running):
+# Run the full benchmark suite (long-running; output goes to /tmp):
 ./scripts/run-benchmarks.sh
+
+# Run a single level with fewer trials:
+./scripts/run-benchmarks.sh --level l2 --trials 3
 ```
 
 ### CLISP (legacy backward-compatible calculator)
