@@ -1,10 +1,13 @@
-;;;; demo.lisp
+;;;; scripts/demo.lisp
 ;;;; A short, self-contained demo of the self-modifying calculator.
 ;;;; Run it with:
+;;;;   ./scripts/run-demo.sh
+;;;;
+;;;; Or manually:
 ;;;;   sbcl --noinform \
 ;;;;        --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
 ;;;;        --eval "(asdf:load-system :self-modifying-calculator)" \
-;;;;        --eval "(load \"demo.lisp\")" \
+;;;;        --eval "(load \"scripts/demo.lisp\")" \
 ;;;;        --eval "(sb-ext:exit)"
 
 (in-package :self-modifying-calculator)

@@ -1,12 +1,13 @@
 #!/bin/bash
-# run.sh — Convenience wrapper to run the self-modifying calculator with SBCL.
+# scripts/run-calculator.sh — Convenience wrapper to run the self-modifying calculator with SBCL.
 #
-# Usage: ./run.sh "<expression>"
-# Example: ./run.sh "2+3*4"
+# Usage: ./scripts/run-calculator.sh "<expression>"
+# Example: ./scripts/run-calculator.sh "2+3*4"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-cd "$SCRIPT_DIR" || exit 1
+cd "$PROJECT_DIR" || exit 1
 
 sbcl --noinform \
   --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
