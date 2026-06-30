@@ -24,9 +24,10 @@
     cache))
 
 (defun cache-touch (cache key)
-  "Record that KEY was accessed in CACHE."
-  (incf (cache-access-counter cache))
-  (setf (gethash key (cache-last-access cache)) (cache-access-counter cache)))
+  "Record that KEY was accessed in CACHE. Only when MAX-SIZE > 0."
+  (when (> (cache-max-size cache) 0)
+    (incf (cache-access-counter cache))
+    (setf (gethash key (cache-last-access cache)) (cache-access-counter cache))))
 
 (defun cache-evict-lru (cache)
   "Evict the least recently used entry from CACHE. Returns the evicted key."
@@ -54,6 +55,9 @@
       (when found
         (cache-touch cache key))
       (values value found))))
+
+(defvar *cache-set-hook* nil
+  "Optional function called after a successful cache-set. Receives (cache key value).")
 
 (defun cache-set (cache key value)
   "Store VALUE for KEY in CACHE. Only ground expressions are cached.
@@ -162,9 +166,6 @@
 
 (defparameter *global-cache* (make-cache)
   "Default global cache used by the cache-aware evaluator.")
-
-(defvar *cache-set-hook* nil
-  "Optional function called after a successful cache-set. Receives (cache key value).")
 
 (defparameter *auto-persist-cache* nil
   "When true, `*global-cache*' is saved on process exit and loaded on startup.")

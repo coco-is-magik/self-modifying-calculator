@@ -3,7 +3,7 @@
 ;;;;
 ;;;; The optimizer watches arithmetic operator calls with specific constant
 ;;;; operands. Once a pattern is seen a threshold number of times, it generates
-;;;; a specialized function that short-circuits those operand pairs and
+;;;; a specialized function that short-circuits those operand patterns and
 ;;;; hot-swaps it into the operator registry via fdefinition.
 
 (in-package :self-modifying-calculator)
@@ -50,18 +50,20 @@
 ;;; Specialized function generation
 
 (defun generate-specialized-function (op base-fn patterns)
-  "Generate a compiled function that short-circuits PATTERNS and falls back to BASE-FN."
+  "Generate a compiled function that short-circuits PATTERNS and falls back to BASE-FN.
+   Uses &rest args so operators with variable arity (e.g., + with 2 or 3 args) are handled."
   (declare (ignore op))
-  (let ((arity (length (first patterns))))
-    (let ((args (loop for i below arity collect (gensym "ARG"))))
-      (compile nil
-               `(lambda ,args
-                  (cond
-                    ,@(mapcar (lambda (pattern)
-                                `((and ,@(mapcar (lambda (arg value) `(= ,arg ,value)) args pattern))
-                                  ,(apply base-fn pattern)))
-                              patterns)
-                    (t (apply ,base-fn (list ,@args)))))))))
+  (compile nil
+           `(lambda (&rest args)
+              (cond
+                ,@(mapcar (lambda (pattern)
+                            `((and (= (length args) ,(length pattern))
+                                   ,@(loop for i from 0
+                                           for value in pattern
+                                           collect `(= (nth ,i args) ,value)))
+                              ,(apply base-fn pattern)))
+                          patterns)
+                (t (apply ,base-fn args))))))
 
 (defun specialize-operator (op &optional (threshold 5))
   "If OP has operand patterns seen at least THRESHOLD times, install a specialized function."

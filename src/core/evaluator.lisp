@@ -34,7 +34,7 @@
 
 (defun variable-value (name)
   "Get the value of a variable, or signal an error if unbound."
-  (multiple-value-bind (value found) (gethash name *variable-table*)
+  (multiple-value-bind (value found) (gethash name (or *variable-table* (make-hash-table :test 'eq)))
     (if found
         value
         (error "Unbound variable: ~A" name))))
@@ -47,7 +47,7 @@
 
 (defun evaluate (node &key (variables nil) (cache *global-cache*))
   "Evaluate an AST node using CACHE. VARIABLES is an alist of (name . value) bindings."
-  (let ((*variable-table* (make-hash-table :test 'eq))
+  (let ((*variable-table* (when variables (make-hash-table :test 'eq)))
         (*global-cache* cache))
     ;; Populate with provided bindings
     (dolist (binding variables)
@@ -57,23 +57,29 @@
 (defun evaluate-node-cached (node &optional (cache *global-cache*))
   "Evaluate a single AST node using CACHE. Caches whole and sub-expression results.
    First tries a compiled dispatch for small caches, then falls back to the EQ
-   hash table."
-  (multiple-value-bind (cvalue cfound) (compiled-cache-get cache node)
-    (cond
-      (cfound
-       (incf (cache-hits cache))
-       cvalue)
-      (t
-       (multiple-value-bind (value found) (cache-get cache node)
-         (if found
-             (progn
-               (incf (cache-hits cache))
-               value)
-             (progn
-               (incf (cache-misses cache))
-               (let ((result (evaluate-node-uncached node cache)))
-                 (cache-set cache node result)
-                 result))))))))
+   hash table. Constants and variables bypass the cache entirely."
+  (cond
+    ((constant-node-p node)
+     (constant-value node))
+    ((variable-node-p node)
+     (variable-value (variable-name node)))
+    (t
+     (multiple-value-bind (cvalue cfound) (compiled-cache-get cache node)
+       (cond
+         (cfound
+          (incf (cache-hits cache))
+          cvalue)
+         (t
+          (multiple-value-bind (value found) (cache-get cache node)
+            (if found
+                (progn
+                  (incf (cache-hits cache))
+                  value)
+                (progn
+                  (incf (cache-misses cache))
+                  (let ((result (evaluate-node-uncached node cache)))
+                    (cache-set cache node result)
+                    result))))))))))
 
 (defun evaluate-node-uncached (node cache)
   "Evaluate NODE without looking it up in CACHE, but still using cache for sub-expressions.

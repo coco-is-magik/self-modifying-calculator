@@ -3,9 +3,16 @@
 
 (in-package :self-modifying-calculator)
 
-(defun run-all-benchmarks (&key (short 100) (medium 10000) (long 100000))
+(defun enable-arithmetic-specialization (&optional (threshold 5))
+  "Enable Level 2 operator specialization for arithmetic operators used in benchmarks."
+  (dolist (op '(:+ :* :- :/))
+    (enable-operator-specialization op threshold)))
+
+(defun run-all-benchmarks (&key (short 100) (medium 10000) (long 100000) (enable-specialization t))
   "Run all benchmark categories at short, medium, and long lengths.
    Returns a list of all benchmark-result structs."
+  (when enable-specialization
+    (enable-arithmetic-specialization))
   (let ((results '())
         (sizes (list (cons :short short) (cons :medium medium) (cons :long long))))
     (dolist (size sizes)
