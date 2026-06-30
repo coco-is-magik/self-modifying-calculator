@@ -27,7 +27,7 @@
 ## Step 4 — Refactored Benchmark Suite
 
 **Approach**:
-- Created `tests/benchmarks/benchmark-framework.lisp` with `benchmark-result`, `measure-time`, `run-benchmark-category`, `print-benchmark-result`, and `print-summary-table`.
+- Created `tests/benchmarks/benchmark-framework.lisp` with `benchmark-result`, `measure-time`, `run-benchmark-category`, `print-benchmark-result`, and `print-summary-table` (later replaced by `benchmark-trial` / `trial-aggregate` and `run-single-trial` in the Session 6 benchmark overhaul).
 - Created `tests/benchmarks/series-generators.lisp` with deterministic generators for:
   - Arithmetic
   - Dot product

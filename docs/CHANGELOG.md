@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 - Compiled dispatch size limit (`*compiled-dispatch-max-clauses*`) to avoid stack overflow on large caches.
 - `.gitignore` for generated cache files and compiled Lisp files.
 - Performance profiling notes in `docs/notes/performance-profiling.md`.
+- Benchmark overhaul: multi-trial, multi-seed aggregation with `benchmark-trial` / `trial-aggregate`.
+- Isolated optimization levels in benchmarks: `:baseline`, `:l1`, `:l1.5`, `:l2`.
+- New benchmark categories: Matrix Multiply, Blinn-Phong shading, and end-to-end parse+eval.
+- Domain-size and cache-size sweep helpers in `tests/benchmarks/run-all-benchmarks.lisp`.
+- `ast-to-string` in `src/core/ast.lisp` for end-to-end parse+eval benchmarking.
+- New linear algebra operators: `:vec3-add` and `:mat4x4-mul`.
 
 ### Changed
 - Moved generated cache source output from `src/generated/` to `cache/generated/`.

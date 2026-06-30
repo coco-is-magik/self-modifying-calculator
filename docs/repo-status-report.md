@@ -61,16 +61,17 @@
 | Trigonometry | ✅ plan.md | ✅ src/math/trigonometry.lisp | ✅ Complete |
 | Statistics | ✅ plan.md | ✅ src/math/statistics.lisp | ✅ Complete (Session 5) |
 
-### Phase 6 — Polish 🟡 IN PROGRESS
+### Phase 6 — Polish ✅ COMPLETE (as of 2026-06-30)
 
 | Component | Planned | Code | Status |
 |---|---|---|---|
-| Full documentation & examples | ✅ plan.md | 🟡 Partial | README, demo.lisp, and notes updated |
+| Full documentation & examples | ✅ plan.md | ✅ README, demo.lisp, scripts/README.md, notes updated | |
 | Integration tests | ✅ plan.md | ✅ tests/integration/test-integration.lisp | 6 end-to-end tests added |
-| Benchmarks and demos | ✅ plan.md | ✅ Benchmark suite + demo.lisp | Demo shows 3×+ speedup |
+| Benchmarks and demos | ✅ plan.md | ✅ Benchmark suite + demo.lisp | Demo shows 5×+ speedup after Session 6 fix |
 | Cache eviction / size bounding | ✅ KNOWN-ISSUES.md | ✅ src/core/cache.lisp | LRU policy implemented |
 | Compiled dispatch revisit | ✅ KNOWN-ISSUES.md | ✅ src/core/dispatch-compiler.lisp | Limited to 100 clauses; falls back to EQ hash table |
 | Unified 3-level pipeline | ✅ KNOWN-ISSUES.md | ✅ src/core/pipeline.lisp | `configure-optimization` API added |
+| Benchmark overhaul | ✅ docs/benchmark-revamp-plan.md | ✅ tests/benchmarks/benchmark-framework.lisp, run-all-benchmarks.lisp, series-generators.lisp | Multi-trial, multi-seed, isolated levels |
 
 ---
 
@@ -173,7 +174,7 @@ A complete, dated list now lives in `docs/KNOWN-ISSUES.md`. Key items include:
 
 ### What's Missing or Drifted
 - No remaining critical documentation drift. Remaining engineering work is tracked in `docs/KNOWN-ISSUES.md` and `docs/notes/performance-profiling.md`.
-- All Phase 6 items from this report have been addressed. Future work is open-ended performance tuning (arithmetic still below target) and additional math modules.
+- All Phase 6 items from this report have been addressed. Future work is open-ended performance tuning (arithmetic still below target), wiring the remaining `scripts/run-benchmarks.sh` sweep flags, and additional math modules.
 
 ### Recommendations
 1. Run the full test suite to confirm the 66-test count.

@@ -24,19 +24,20 @@
   (format t "These are dot(N,L) * sin(angle) + 0.1 style expressions.~%~%")
 
   (let* ((series (generate-realistic-renderer-asts count))
-         (result (run-benchmark-category "Realistic Renderer" series :count count)))
-    (format t "Conventional time: ~,4F s~%" (benchmark-result-conventional-time result))
-    (format t "SMC warm time:     ~,4F s~%" (benchmark-result-smc-warm-time result))
+         (trial (run-single-trial "Realistic Renderer" series
+                                   :count count :level :l2 :seed 42)))
+    (format t "Conventional time: ~,4F s~%" (benchmark-trial-conventional-time trial))
+    (format t "SMC warm time:     ~,4F s~%" (benchmark-trial-smc-warm-time trial))
     (format t "Speedup:           ~,2F×~%"
-            (/ (benchmark-result-conventional-time result)
-               (benchmark-result-smc-warm-time result)))
-    (let ((stats (benchmark-result-cache-stats result)))
+            (/ (benchmark-trial-conventional-time trial)
+               (benchmark-trial-smc-warm-time trial)))
+    (let ((stats (benchmark-trial-cache-stats trial)))
       (format t "Cache:             ~D entries, ~D hits, ~D misses~%"
               (getf stats :size)
               (getf stats :hits)
               (getf stats :misses))))
   (format t "~%Try the full benchmark suite with:~%")
-  (format t "  (load \"tests/benchmarks/run-all-benchmarks.lisp\")~%")
-  (format t "  (smc::run-all-benchmarks)~%"))
+  (format t "  ./scripts/run-benchmarks.sh~%")
+  (format t "  or (smc:run-all-benchmarks :level :l2 :trials 3)~%"))
 
 (run-demo)

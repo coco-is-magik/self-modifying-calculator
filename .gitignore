@@ -9,7 +9,6 @@ smc-benchmark-*.out
 
 # Common Lisp compiled files
 *.fasl
-*.fasl
 
 # Editor / OS noise
 *~

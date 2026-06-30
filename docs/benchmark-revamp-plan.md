@@ -86,10 +86,21 @@ Before each timed section, call `(sb-ext:gc :full)` and then `(sleep 0.1)` to le
 Run each (category × size × level × seed) combination as an independent trial. Report median + interquartile range or [min, max] across seeds 1–N (default N = 10). This directly addresses the noise problem.
 
 ```lisp
-(defun run-trials (generator count level &key (seeds (loop for i from 1 to 10 collect i)))
-  "Run N trials at different seeds and return a list of benchmark-result structs."
-  (loop for seed in seeds
-        collect (run-single-trial generator count level seed)))
+(defun run-trials (name-generator-fn count &key (level :l1)
+                                               (seeds *benchmark-default-seeds*)
+                                               (cache-max-size 0))
+  "Run N trials at different seeds and return a list of BENCHMARK-TRIAL structs."
+  (let ((trials '()))
+    (dolist (seed seeds)
+      (multiple-value-bind (name series)
+          (funcall name-generator-fn count seed)
+        (push (run-single-trial name series
+                                :count count
+                                :level level
+                                :seed seed
+                                :cache-max-size cache-max-size)
+              trials)))
+    (aggregate-trials (nreverse trials))))
 ```
 
 ### 2.4 Isolate optimization levels
@@ -275,41 +286,44 @@ This is the most useful output: it shows which optimization mechanism contribute
 
 ### 6.1 `tests/benchmarks/benchmark-framework.lisp`
 
-**Changes**:
-- Add `*optimization-configs*` alist mapping level keywords to configuration callbacks
-- Add `*benchmark-seeds*` configurable list of seeds (default `(loop for i from 1 to 10 collect i)`)
-- Add `measure-cpu-time` using `sb-ext:process-run-time`
-- Add `gc-and-settle` helper
-- Add `unique-ratio` field to `benchmark-result`
-- Add `cold-speedup` and `warm-speedup` computed fields
-- Add `level` field to `benchmark-result`
-- Add `run-single-trial` that handles per-level configuration
-- Add `run-trials` that iterates over seeds and aggregates results
-- Add `print-benchmark-with-stats` that shows median + range
-- Add `print-level-comparison` that produces per-level summary
-- Remove old `run-benchmark-category` or refactor into `run-single-trial`
+**Changes** (implemented):
+- Added `*benchmark-default-seeds*` configurable list of seeds.
+- Added `measure-cpu-time` using `get-internal-run-time`.
+- Added `gc-and-settle` helper.
+- Added `unique-ratio` computation.
+- Replaced `benchmark-result` with `benchmark-trial` (single trial) and `trial-aggregate` (median + range).
+- Added `cold-speedup` and `warm-speedup` computed fields in `aggregate-trials`.
+- Added `level` field to `benchmark-trial`.
+- Added `run-single-trial` that handles per-level configuration.
+- Added `run-trials` that iterates over seeds and aggregates results.
+- Added `print-trial-aggregate`, `print-aggregate-summary-table`, `print-level-comparison`, and `print-aggregates-as-sexp`.
+- Removed old `run-benchmark-category`.
+
+**Remaining**: optionally switch from `get-internal-run-time` to `sb-ext:process-run-time` and record per-phase GC time.
 
 ### 6.2 `tests/benchmarks/run-all-benchmarks.lisp`
 
-**Changes**:
-- Accept `:level` parameter (one of `:all`, `:baseline`, `:l1`, `:l1.5`, `:l2`)
-- Accept `:trial-count` parameter (default 10)
-- Accept `:domain-sizes` parameter for sweeps
-- Add `run-level` function that configures the evaluator, runs warmup, then runs trials
-- Add `run-domain-sweep` that iterates over domain sizes
-- Add `run-cache-size-sweep` that iterates over max-size values
-- Call `gc-and-settle` between each phase
-- Call `run-collect-stats` after each set of trials
+**Changes** (implemented):
+- Accepts `:level` parameter (`:all`, `:baseline`, `:l1`, `:l1.5`, `:l2`).
+- Accepts `:seeds` parameter for multi-trial runs.
+- Accepts `:cache-max-size` parameter for bounded-cache runs.
+- Added `run-level` function that configures the evaluator and runs trials.
+- Added `setup-warmup-for-level-2` to install specializations before timing.
+- Added `run-domain-sweep` and `run-cache-size-sweep`.
+- Calls `gc-and-settle` between phases.
+- Prints per-level summary tables and machine-readable sexp output.
+
+**Remaining**: wire `--sweep-domain` and `--sweep-cache` flags in `scripts/run-benchmarks.sh`.
 
 ### 6.3 `tests/benchmarks/series-generators.lisp`
 
-**Changes**:
-- Add `domain-size` parameter to `generate-arithmetic-asts` (controls operand range)
-- Add `component-set` parameter to `generate-dot-product-asts` and `generate-cross-product-asts`
-- Add `angle-count` parameter to `generate-trig-asts`
-- Add `generate-matrix-multiply-asts` (new category)
-- Add `generate-blinn-phong-asts` (new category)
-- Add `generate-expression-strings` (for end-to-end parse+eval benchmark)
+**Changes** (implemented):
+- Added `domain-size` keyword to `generate-arithmetic-asts`.
+- Added `component-set` keyword to `generate-dot-product-asts`, `generate-cross-product-asts`, and `generate-blinn-phong-asts`.
+- Added `angle-count` keyword to `generate-trig-asts`.
+- Added `generate-matrix-multiply-asts` (Matrix Multiply category).
+- Added `generate-blinn-phong-asts` (Blinn-Phong lighting category).
+- Added `generate-expression-strings` for end-to-end parse+eval benchmarking.
 
 ### 6.4 `scripts/run-benchmarks.sh`
 

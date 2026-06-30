@@ -300,3 +300,45 @@ The documentation had drifted from the implemented code (Quicklisp, Pratt parser
 - Revisit compiled cache dispatch with a smarter data structure.
 - Unify the 3-level optimization pipeline.
 
+---
+
+## Session 6 — Benchmark Overhaul & Documentation Cleanup
+
+**Date**: 2026-06-30
+
+**Completed**:
+- Overhauled the benchmark framework in `tests/benchmarks/benchmark-framework.lisp`:
+  - Replaced single-run `benchmark-result` with `benchmark-trial` (single trial) and `trial-aggregate` (median + range across seeds).
+  - Added isolated optimization levels: `:baseline`, `:l1`, `:l1.5`, `:l2`.
+  - Added `setup-warmup-for-level-2` so specialization thresholds are crossed before timing.
+  - Added `unique-ratio` reporting and cold/warm speedup fields.
+  - Switched timing to CPU time via `get-internal-run-time` and added `gc-and-settle` between phases.
+- Expanded `tests/benchmarks/series-generators.lisp` with domain-size/component-set/angle-count parameters and new categories:
+  - Matrix Multiply (`:mat4x4-mul`)
+  - Blinn-Phong shading
+  - End-to-end parse+eval string generation (`generate-expression-strings`)
+- Added new linear algebra operators `:vec3-add` and `:mat4x4-mul` in `src/math/linear-algebra.lisp`.
+- Added `ast-to-string` in `src/core/ast.lisp` to support end-to-end parse+eval benchmarks.
+- Fixed `scripts/demo.lisp` to use the new `run-single-trial` / `benchmark-trial` API; `./scripts/run-demo.sh` now runs without error.
+- Updated `docs/KNOWN-ISSUES.md`, `docs/notes/session-4-implementation-notes.md`, `docs/notes/session-5-implementation-notes.md`, and `docs/benchmark-revamp-plan.md` to reference the new benchmark API and mark implemented phases.
+- Expanded `docs/CHANGELOG.md` `[Unreleased]` with benchmark overhaul details.
+- Removed duplicate `*.fasl` line from `.gitignore`.
+
+**Rationale**:
+The benchmark methodology had become a source of noisy, hard-to-interpret numbers. The old single-run, single-seed, mixed-optimization approach could not answer whether caching, compiled dispatch, or specialization was responsible for any observed speedup. The overhaul isolates each mechanism, aggregates across seeds, and reports ranges. The documentation cleanup removes references to deleted functions (`run-benchmark-category`, `benchmark-result`) and records the current state for the next session.
+
+**Current State**:
+- All 66 tests pass via `./scripts/run-tests.sh`.
+- `./scripts/run-demo.sh` runs successfully and reports a realistic-renderer speedup.
+- Benchmarks can be run at isolated levels with `(smc:run-all-benchmarks :level :l2 :seeds '(1 2 3))`.
+
+**Blockers / Known Limitations**:
+- `scripts/run-benchmarks.sh` does not yet expose the `--sweep-domain` and `--sweep-cache` flags; the Lisp sweep helpers exist but are not wired to the shell script.
+- `measure-cpu-time` uses `get-internal-run-time` rather than `sb-ext:process-run-time`; the plan documents this as a remaining optional improvement.
+- Arithmetic remains the hardest workload and still does not meet the 5× target.
+
+**Next Steps** (for Session 7):
+- Wire `--sweep-domain` and `--sweep-cache` flags into `scripts/run-benchmarks.sh`.
+- Continue arithmetic optimization (per-operator hash dispatch, selective caching of small nodes, bounded cache sizing).
+- Update `README.md` benchmark results section with the new methodology and latest numbers.
+

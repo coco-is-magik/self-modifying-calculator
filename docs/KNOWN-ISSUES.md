@@ -21,7 +21,7 @@
 3. **Short/medium benchmark timing noise** (2026-06-28)
    - **Description**: Short (100) and medium (10,000) calculation series are now measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count. Timings are now measurable, though long series remain the most reliable source of speedup numbers.
    - **Impact**: Short/medium speedup numbers are now mostly reliable, with occasional run-to-run variance.
-   - **Resolution**: `run-benchmark-category` in `tests/benchmarks/benchmark-framework.lisp` accumulates repetitions for short and medium series. Tuning may still be needed if variance remains high.
+   - **Resolution**: `*benchmark-repeats*` in `tests/benchmarks/benchmark-framework.lisp` controls the repetition count, and `run-single-trial` accumulates repetitions for short and medium series. Tuning may still be needed if variance remains high.
 
 ---
 

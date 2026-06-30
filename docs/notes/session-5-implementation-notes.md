@@ -59,7 +59,7 @@ The remaining open items from the plan were:
 ## Step 2 — Improved Benchmark Timing Accuracy
 
 **Approach**:
-- Modified `run-benchmark-category` in `tests/benchmarks/benchmark-framework.lisp`.
+- Modified `run-benchmark-category` in `tests/benchmarks/benchmark-framework.lisp` (this function was later replaced by `run-single-trial` in the Session 6 benchmark overhaul).
 - For short series (≤100 calculations), each pass is repeated 100×.
 - For medium series (≤10,000 calculations), each pass is repeated 10×.
 - For long series (100,000 calculations), the pass is run once.
