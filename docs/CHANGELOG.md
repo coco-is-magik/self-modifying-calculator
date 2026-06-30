@@ -12,15 +12,25 @@ All notable changes to this project will be documented in this file.
 - Cache-set hook (`*cache-set-hook*`) for automatic Level 2 specialization and Level 3 source rewriting.
 - Compiled dispatch size limit (`*compiled-dispatch-max-clauses*`) to avoid stack overflow on large caches.
 - `.gitignore` for generated cache files and compiled Lisp files.
+- Performance profiling notes in `docs/notes/performance-profiling.md`.
 
 ### Changed
 - Moved generated cache source output from `src/generated/` to `cache/generated/`.
 - Re-enabled compiled dispatch in the evaluator for small caches; large caches fall back to the EQ hash table.
 - Updated `src/core/package.lisp` to export parser, cache persistence, and pipeline symbols.
 - Updated documentation (`README.md`, `docs/KNOWN-ISSUES.md`, `docs/repo-status-report.md`).
+- `run-all-benchmarks` now enables Level 2 operator specialization by default.
 
 ### Fixed
 - Compiled dispatch now correctly quotes cached list values to avoid "illegal function call" errors.
+- `generate-specialized-function` now emits a `&rest` lambda so variadic operators like `+` are handled correctly.
+- `*cache-set-hook*` is now declared before `cache-set` to avoid compilation warnings.
+
+### Performance
+- Avoided creating a fresh `*variable-table*` hash table in `evaluate` when no variables are bound.
+- Made LRU bookkeeping conditional on `max-size > 0` for unlimited caches.
+- Added fast paths for constants and variables in `evaluate-node-cached`, bypassing cache lookup.
+- Realistic-renderer LONG benchmark now consistently exceeds the 5× target (range 5×–8×).
 
 ## [0.1.0] - 2026-06-28
 

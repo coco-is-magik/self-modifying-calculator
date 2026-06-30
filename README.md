@@ -182,17 +182,17 @@ The cache-aware evaluator now outperforms conventional evaluation on realistic w
 
 ### LONG series speedups (100,000 calculations)
 
-| Category | Speedup |
+| Category | Speedup (LONG) |
 |---|---|
-| Arithmetic | **1.17×** |
-| Dot Product | **3.33×** |
-| Cross Product | **3.00×** |
-| Trig | **1.20×** |
-| Polynomial | **3.50×** |
-| Mixed | **2.67×** |
-| Realistic Renderer | **3.25×** |
+| Arithmetic | **~1.0–1.9×** |
+| Dot Product | **2.3–8.0×** |
+| Cross Product | **2.3–8.3×** |
+| Trig | **2.3–5.4×** |
+| Polynomial | **1.8–8.6×** |
+| Mixed | **2.0–5.2×** |
+| Realistic Renderer | **5.0–8.0×** |
 
-Arithmetic remains the hardest category because the operations themselves are so cheap. All renderer-style workloads (dot, cross, polynomial, realistic renderer) show solid 3×+ speedups.
+Arithmetic remains the hardest category because the operations themselves are so cheap. The priority category, **realistic renderer**, now consistently exceeds the 5× minimum target. Dot, cross, polynomial, and trig are often above 5× but are noisy; mixed is still the second-weakest realistic scenario. See `docs/notes/performance-profiling.md` for the full analysis and next candidate optimizations.
 
 Short and medium series are measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count; long series are the most reliable source of speedup numbers.
 

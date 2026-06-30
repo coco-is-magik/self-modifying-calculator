@@ -7,10 +7,11 @@
 
 ## Performance
 
-1. **Performance targets not met** (2026-06-28)
-   - **Description**: Plan targets 5.0× speedup for long series and 20× stretch. Current actual LONG series (100,000 calculations) results are 1.17× arithmetic, 3.33× dot product, 3.00× cross product, 1.20× trig, 3.50× polynomial, 2.67× mixed, 3.25× realistic renderer.
-   - **Impact**: The calculator beats conventional evaluation on realistic workloads but falls short on cheap arithmetic.
-   - **Planned resolution**: Continue optimizing the dispatch path; consider cache eviction to keep hot entries; revisit compiled dispatch with a non-linear structure.
+1. **Performance targets partially met** (2026-06-28, updated 2026-06-29)
+   - **Description**: Plan targets 5.0× speedup for long series and 20× stretch. After tuning, the priority category (realistic renderer) now reaches 5.0×–8.0×. Dot product, cross product, and polynomial are often above 5.0× but very noisy (2.3×–8.3×). Trig is usually 2.3×–5.4×. Mixed is 2.0×–5.2×. Arithmetic remains the hardest case at ~1.0×–1.9×.
+   - **Impact**: The calculator meets the 5× minimum target on the most important realistic workload. Arithmetic is still slower than conventional evaluation because the operations are too cheap to amortize cache overhead.
+   - **Resolution**: Implemented variable-table allocation avoidance, conditional LRU, fast paths for constants/variables, and Level 2 specialization in benchmark runs. See `docs/notes/performance-profiling.md`.
+   - **Planned resolution**: Further options include per-operator hash dispatch, selective caching of small arithmetic nodes, bounded cache sizing, and inlining operator-function lookups.
 
 2. **Compiled cache dispatch limited to small caches** (2026-06-28)
    - **Description**: `src/core/dispatch-compiler.lisp` now limits compiled dispatch to caches with at most `*compiled-dispatch-max-clauses*` entries (default 100). Larger caches fall back to the EQ hash table, avoiding the stack overflow and slow linear scan caused by thousands of cond clauses. Cached list values are quoted in the generated code so they are returned as literals rather than function calls.

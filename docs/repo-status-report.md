@@ -94,15 +94,15 @@
 
 | Category | LONG Series Speedup | Notes |
 |---|---|---|
-| Arithmetic | **1.17×** | Hardest case; cache overhead barely amortized |
-| Dot Product | **3.33×** | High sub-expression reuse |
-| Cross Product | **3.00×** | Moderate complexity |
-| Trig | **1.20×** | Library call caching helps |
-| Polynomial | **3.50×** | Factor reuse across repeated coefficients |
-| Mixed | **2.67×** | Representative combined workload |
-| Realistic Renderer | **3.25×** | Combined lighting/trig/dot workload |
+| Arithmetic | **~1.0–1.9×** | Hardest case; cache overhead barely amortized |
+| Dot Product | **2.3–8.0×** | High sub-expression reuse; very noisy |
+| Cross Product | **2.3–8.3×** | Often above 5×; noisy |
+| Trig | **2.3–5.4×** | Usually 3–4×; noisy |
+| Polynomial | **1.8–8.6×** | Often above 5×; noisy |
+| Mixed | **2.0–5.2×** | Sometimes reaches 5×; noisy |
+| Realistic Renderer | **5.0–8.0×** | Consistently exceeds the 5× minimum target |
 
-Plan target: 5.0× minimum, 20× stretch. Targets not yet met for arithmetic (hardest case). See `docs/KNOWN-ISSUES.md` item 1 and `docs/notes/session-4-implementation-notes.md` for analysis.
+Plan target: 5.0× minimum, 20× stretch. The priority category (realistic renderer) now meets the 5× minimum. Remaining gaps are in arithmetic and, to a lesser extent, mixed. See `docs/notes/performance-profiling.md` for the full analysis and next candidate optimizations.
 
 ---
 
@@ -146,7 +146,7 @@ Plan target: 5.0× minimum, 20× stretch. Targets not yet met for arithmetic (ha
 
 A complete, dated list now lives in `docs/KNOWN-ISSUES.md`. Key items include:
 
-1. **Performance below plan targets** — ~0.9×–3.5× vs 5× target (arithmetic is the hardest case)
+1. **Performance partially at target** — realistic renderer LONG now exceeds 5× (range 5×–8×); cross/polynomial often exceed 5×; arithmetic remains below 2× (hardest case). See `docs/notes/performance-profiling.md` for the full analysis.
 2. **Compiled dispatch limited** — linear scan limited to 100 clauses; larger caches use EQ hash table
 3. **Cache eviction implemented** — LRU policy added in `src/core/cache.lisp`
 4. **Automatic cache persistence implemented** — `*auto-persist-cache*` and `main` integration
@@ -169,12 +169,13 @@ A complete, dated list now lives in `docs/KNOWN-ISSUES.md`. Key items include:
 - Cache eviction (LRU), integration tests, and the simplified test runner are now implemented.
 - New math modules follow the same registration pattern as existing modules.
 - `docs/KNOWN-ISSUES.md` now tracks all gaps with dates and planned resolutions.
+- `docs/notes/performance-profiling.md` documents the performance tuning session and next candidate optimizations.
 
 ### What's Missing or Drifted
-- No remaining critical documentation drift. Remaining engineering work is tracked in `docs/KNOWN-ISSUES.md`.
-- All Phase 6 items from this report have been addressed. Future work is open-ended performance tuning and additional math modules.
+- No remaining critical documentation drift. Remaining engineering work is tracked in `docs/KNOWN-ISSUES.md` and `docs/notes/performance-profiling.md`.
+- All Phase 6 items from this report have been addressed. Future work is open-ended performance tuning (arithmetic still below target) and additional math modules.
 
 ### Recommendations
 1. Run the full test suite to confirm the 66-test count.
-2. Revisit compiled dispatch only if the EQ hash table path is confirmed to be the remaining bottleneck.
-3. Continue updating `docs/KNOWN-ISSUES.md` as new limitations are discovered or resolved.
+2. See `docs/notes/performance-profiling.md` for the next candidate optimizations (per-operator hash dispatch, selective caching, bounded cache, operator table inlining).
+3. Continue updating `docs/KNOWN-ISSUES.md` and `docs/notes/performance-profiling.md` as new limitations are discovered or resolved.
