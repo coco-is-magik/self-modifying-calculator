@@ -218,8 +218,8 @@ cd self-modifying-calculator
 
 ### SBCL (new implementation)
 ```bash
-# Using the run.sh wrapper:
-./run.sh "2+3*4"
+# Using the run-calculator.sh wrapper:
+./scripts/run-calculator.sh "2+3*4"
 
 # Or invoke directly with ASDF:
 cd /bigdisk/programming/self-modifying-calculator
@@ -230,28 +230,13 @@ sbcl --noinform \
   --eval "(sb-ext:exit)"
 
 # Run the test suite:
-sbcl --noinform \
-  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
-  --eval "(asdf:load-system :self-modifying-calculator)" \
-  --eval "(load \"tests/load-all-tests.lisp\")" \
-  --eval "(sb-ext:exit)"
+./scripts/run-tests.sh
 
 # Run the quick demo:
-sbcl --noinform \
-  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
-  --eval "(asdf:load-system :self-modifying-calculator)" \
-  --eval "(load \"demo.lisp\")" \
-  --eval "(sb-ext:exit)"
+./scripts/run-demo.sh
 
 # Run the full benchmark suite (long-running):
-sbcl --noinform \
-  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
-  --eval "(asdf:load-system :self-modifying-calculator)" \
-  --eval "(load \"tests/benchmarks/benchmark-framework.lisp\")" \
-  --eval "(load \"tests/benchmarks/series-generators.lisp\")" \
-  --eval "(load \"tests/benchmarks/run-all-benchmarks.lisp\")" \
-  --eval "(smc:run-all-benchmarks)" \
-  --eval "(sb-ext:exit)"
+./scripts/run-benchmarks.sh
 ```
 
 ### CLISP (legacy backward-compatible calculator)
@@ -278,7 +263,14 @@ self-modifying-calculator/
 │   └── main.lisp             # Entry point
 ├── tests/                    # Test suites
 ├── cache/                    # Persistent cache data
-├── demo.lisp                 # Quick demo script
+├── scripts/                  # Convenience bash scripts (tests, benchmarks, demo)
+│   ├── README.md
+│   ├── run-calculator.sh
+│   ├── run.sh
+│   ├── run-tests.sh
+│   ├── run-benchmarks.sh
+│   ├── run-demo.sh
+│   └── run-linter.sh
 ├── calculator.lsp            # Current CLISP calculator (backward compat)
 ├── README.md
 └── LICENSE

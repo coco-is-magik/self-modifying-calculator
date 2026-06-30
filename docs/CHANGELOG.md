@@ -20,11 +20,19 @@ All notable changes to this project will be documented in this file.
 - Updated `src/core/package.lisp` to export parser, cache persistence, and pipeline symbols.
 - Updated documentation (`README.md`, `docs/KNOWN-ISSUES.md`, `docs/repo-status-report.md`).
 - `run-all-benchmarks` now enables Level 2 operator specialization by default.
+- Moved `run.sh` and `demo.lisp` into a new `scripts/` folder.
+- Added `scripts/run-calculator.sh`, `scripts/run-tests.sh`, `scripts/run-benchmarks.sh`, `scripts/run-demo.sh`, `scripts/run-linter.sh`, and `scripts/run.sh` (backward-compatible alias).
+- Added `scripts/README.md` documenting every script.
 
 ### Fixed
 - Compiled dispatch now correctly quotes cached list values to avoid "illegal function call" errors.
 - `generate-specialized-function` now emits a `&rest` lambda so variadic operators like `+` are handled correctly.
 - `*cache-set-hook*` is now declared before `cache-set` to avoid compilation warnings.
+
+### Removed
+- Deleted `src/core/matcher.lisp` (dead code; the evaluator caches sub-expressions directly without rewriting).
+- Removed `src/core/matcher.lisp` from `self-modifying-calculator.asd`.
+- Deleted `tests/benchmarks/arithmetic-benchmark.lisp` and `tests/benchmarks/dot-product-benchmark.lisp` (superseded by the unified benchmark framework).
 
 ### Performance
 - Avoided creating a fresh `*variable-table*` hash table in `evaluate` when no variables are bound.
