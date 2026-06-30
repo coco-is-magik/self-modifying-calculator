@@ -102,3 +102,39 @@
   (let ((count 0))
     (walk-ast node (lambda (n) (declare (ignore n)) (incf count)))
     count))
+
+;;; ---------------------------------------------------------------------------
+;;; AST to string conversion
+;;; ---------------------------------------------------------------------------
+
+(defun ast-to-string (node)
+  "Convert an AST node back to a human-readable expression string.
+   Useful for debugging and for end-to-end parse+eval benchmarks."
+  (cond
+    ((constant-node-p node)
+     (let ((v (constant-value node)))
+       (if (integerp v)
+           (format nil "~D" v)
+           (format nil "~F" v))))
+    ((variable-node-p node)
+     (string-downcase (symbol-name (variable-name node))))
+    ((consp node)
+     (let ((op (car node))
+           (args (cdr node)))
+       (case op
+         (:+ (format nil "(~{~A~^ + ~})" (mapcar #'ast-to-string args)))
+         (:- (if (= (length args) 1)
+                 (format nil "-~A" (ast-to-string (first args)))
+                 (format nil "(~{~A~^ - ~})" (mapcar #'ast-to-string args))))
+         (:* (format nil "(~{~A~^ * ~})" (mapcar #'ast-to-string args)))
+         (:/ (format nil "(~{~A~^ / ~})" (mapcar #'ast-to-string args)))
+         (:^ (format nil "(~A ^ ~A)" (ast-to-string (first args)) (ast-to-string (second args))))
+         (:vec3 (format nil "vec3(~A, ~A, ~A)"
+                        (ast-to-string (first args))
+                        (ast-to-string (second args))
+                        (ast-to-string (third args))))
+         (otherwise
+          (format nil "~A(~{~A~^, ~})"
+                  (string-downcase (symbol-name op))
+                  (mapcar #'ast-to-string args))))))
+    (t (error "Invalid AST node: ~A" node))))
