@@ -67,6 +67,15 @@ class _LibSMC:
 
     def _load(self) -> None:
         lib_name = self._find_library()
+
+        # If a generated dispatch table is available next to the runtime, load
+        # it first with RTLD_GLOBAL so its strong Tier 2 symbols are visible
+        # when the runtime library is loaded. The runtime's weak stubs will
+        # then resolve to the generated implementations.
+        generated_name = self._find_generated_library(lib_name)
+        if generated_name:
+            ctypes.CDLL(generated_name, mode=ctypes.RTLD_GLOBAL)
+
         self._lib = ctypes.CDLL(lib_name)
 
         # Lifecycle
@@ -202,6 +211,32 @@ class _LibSMC:
             except Exception:
                 pass
         return candidates[0]
+
+    @staticmethod
+    def _find_generated_library(runtime_path: str) -> Optional[str]:
+        """Locate the generated dispatch table next to the runtime library."""
+        runtime = Path(runtime_path)
+        name = runtime.name
+        generated_name: Optional[str] = None
+        if name.startswith("libsmc."):
+            generated_name = name.replace("libsmc.", "libsmc_generated.", 1)
+        elif name.startswith("smc."):
+            generated_name = name.replace("smc.", "smc_generated.", 1)
+        if not generated_name:
+            return None
+
+        # Look in the same directory as the runtime.
+        candidate = runtime.with_name(generated_name)
+        if candidate.exists():
+            return str(candidate)
+
+        # Look in the project build directory.
+        project_root = Path(__file__).resolve().parent.parent.parent
+        candidate = project_root / "build" / generated_name
+        if candidate.exists():
+            return str(candidate)
+
+        return None
 
     def _last_error_message(self) -> str:
         err = self._lib.smc_last_error()
