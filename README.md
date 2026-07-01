@@ -175,6 +175,93 @@ The project is organized into implementation phases:
 > **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
 
+## C & Python Embedding (New — Milestone 1 Complete)
+
+SMC is now usable as an embeddable library from **C** and **Python**. The embedding layer is staged across three milestones:
+
+| Milestone | Status | Description |
+|-----------|--------|-------------|
+| **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a proof-of-concept C generator |
+| **Milestone 2** | 🚧 Planned | Production generated-code API (`smc_call_*`) with stable expression IDs and a real cache walker |
+| **Milestone 3** | 🚧 Planned | CMake package, `pip install`, integration guide, and game/simulation benchmarks |
+
+### Architecture
+
+- **Primary production target**: Generate C source code from SMC's hot cached expressions. The runtime is plain C with no Lisp dependency.
+- **Development / tooling target**: An optional embedded SBCL runtime for full self-modification during prototyping.
+- **Python binding**: Pure-Python `ctypes` wrapper with zero build step.
+
+### C API v1 (Milestone 1)
+
+The stable header is `include/smc.h`. Two API tiers are planned:
+
+- **Tier 1 — Development/tooling** (`smc_eval_double`, `smc_eval_float`, `smc_eval_int`): evaluate arbitrary expression strings.
+- **Tier 2 — Production hot path** (`smc_call_double`, `smc_call_float`, `smc_call_int`): call cached expressions by stable integer ID with no string parsing.
+
+Milestone 1 implements Tier 1 in the stub runtime and Tier 2 in generated C files. Tier 2 is not yet available in the stub runtime.
+
+### Python API (Milestone 1)
+
+```python
+import smc
+
+# Tier 1: global context, expression strings
+print(smc.eval("2 + 3 * 4"))        # 14.0
+print(smc.eval_int("7 / 2"))        # 3
+
+# Tier 1: isolated context
+with smc.Context(level=2) as ctx:
+    print(ctx.eval("10 - 4 / 2"))   # 8.0
+
+# Tier 2: production generated-code call (planned for Milestone 2)
+# print(smc.call(42, 0.6, 0.0, 0.8))
+```
+
+### Building and Running (Milestone 1)
+
+**C shared library:**
+```bash
+gcc -std=c99 -Wall -Wextra -fPIC -Iinclude -shared src/c/smc_runtime_stub.c -o libsmc.so -lm
+```
+
+**C example:**
+```bash
+gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c examples/c/hello_smc.c -o hello_smc -lm
+./hello_smc
+```
+
+**C acceptance test:**
+```bash
+gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c tests/c/test_stub_runtime.c -o test_stub_runtime -lm
+./test_stub_runtime
+```
+
+**Python example:**
+```bash
+PYTHONPATH=python python3 examples/python/hello_smc.py
+```
+
+**Python acceptance test:**
+```bash
+PYTHONPATH=python python3 tests/python/test_smc.py
+```
+
+**Generate C source from SBCL:**
+```bash
+sbcl --script scripts/generate-c-source.lisp /tmp/smc_generated.c
+```
+
+### Limitations (Milestone 1)
+
+- The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, and unary `+`/`-`.
+- Variables, cache persistence, source generation, and Tier 2 `smc_call_*` return `SMC_ERR_NOT_IMPL` in the stub runtime.
+- The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
+- The generator script emits a small hard-coded dispatch table as a proof of concept.
+
+See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md) for the full roadmap and design rationale.
+
+---
+
 ## Performance Results
 
 The cache-aware evaluator now outperforms conventional evaluation on realistic workloads. Key optimizations:

@@ -13,3 +13,24 @@ smc-benchmark-*.out
 # Editor / OS noise
 *~
 .DS_Store
+
+# C build artifacts
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+libsmc*
+build/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+*.pyo
+python/*.egg-info/
+python/build/
+python/dist/
+
+# Generated C source (kept out of repo; produced by scripts/generate-c-source.lisp)
+smc_generated.c
+smc_generated.h
