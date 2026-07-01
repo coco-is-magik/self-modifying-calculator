@@ -28,6 +28,9 @@ __all__ = [
     "eval_int",
     "Context",
     "call",
+    "expr_count",
+    "expr_arity",
+    "expr_source",
     "set_variable",
     "clear_variables",
     "cache_save",
@@ -116,6 +119,14 @@ class _LibSMC:
             c_size_t,
             ctypes.POINTER(c_double),
         ]
+
+        # Expression metadata
+        self._lib.smc_expr_count.restype = c_int
+        self._lib.smc_expr_count.argtypes = []
+        self._lib.smc_expr_arity.restype = c_size_t
+        self._lib.smc_expr_arity.argtypes = [c_uint32]
+        self._lib.smc_expr_source.restype = c_char_p
+        self._lib.smc_expr_source.argtypes = [c_uint32]
 
         # Variables
         self._lib.smc_set_variable_double.restype = c_int
@@ -292,6 +303,27 @@ def call(expr_id: int, *args: float) -> float:
     return out.value
 
 
+def expr_count() -> int:
+    """Return the number of expressions in the generated dispatch table."""
+    lib = _LibSMC()
+    return int(lib._lib.smc_expr_count())
+
+
+def expr_arity(expr_id: int) -> int:
+    """Return the arity (number of free variables) of expression ID."""
+    lib = _LibSMC()
+    return int(lib._lib.smc_expr_arity(c_uint32(expr_id)))
+
+
+def expr_source(expr_id: int) -> Optional[str]:
+    """Return the original expression string for expression ID, or None."""
+    lib = _LibSMC()
+    raw = lib._lib.smc_expr_source(c_uint32(expr_id))
+    if raw is None:
+        return None
+    return raw.decode("utf-8", errors="replace")
+
+
 class Context:
     """An isolated SMC evaluation context.
 
@@ -392,3 +424,19 @@ class Context:
             ),
             self._ctx,
         )
+
+    def call(self, expr_id: int, *args: float) -> float:
+        """Call a generated expression by stable ID.
+
+        The generated dispatch table is global, so this uses the same hot-path
+        implementation as the module-level :func:`smc.call`.
+        """
+        argc = len(args)
+        c_args = (c_double * argc)(*args)
+        out = c_double()
+        self._lib._check(
+            self._lib._lib.smc_call_double(
+                c_uint32(expr_id), c_args, c_size_t(argc), ctypes.byref(out)
+            )
+        )
+        return out.value

@@ -402,41 +402,14 @@ int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Tier 2 generated-code calls (stub: not implemented in Milestone 1)         */
+/* Tier 2 generated-code calls                                                */
 /* -------------------------------------------------------------------------- */
-
-int smc_call_double(smc_expr_id_t expr_id,
-                    const double *args, size_t argc,
-                    double *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
-    smc_set_error(SMC_ERR_NOT_IMPL, "smc_call_double requires generated C runtime");
-    return SMC_ERR_NOT_IMPL;
-}
-
-int smc_call_float(smc_expr_id_t expr_id,
-                   const float *args, size_t argc,
-                   float *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
-    smc_set_error(SMC_ERR_NOT_IMPL, "smc_call_float requires generated C runtime");
-    return SMC_ERR_NOT_IMPL;
-}
-
-int smc_call_int(smc_expr_id_t expr_id,
-                 const int64_t *args, size_t argc,
-                 int64_t *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
-    smc_set_error(SMC_ERR_NOT_IMPL, "smc_call_int requires generated C runtime");
-    return SMC_ERR_NOT_IMPL;
-}
+/*
+ * The actual implementations of smc_call_* and smc_expr_* are supplied by the
+ * generated dispatch table (smc_generated.c).  The smc_generated_runtime.c
+ * companion file provides weak fallbacks that return SMC_ERR_NOT_IMPL when no
+ * generated table is linked.
+ */
 
 /* -------------------------------------------------------------------------- */
 /* Variables (stub: not implemented in Milestone 1)                             */
@@ -522,24 +495,6 @@ int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path) {
     (void)out_path;
     smc_set_error(SMC_ERR_NOT_IMPL, "source generation not implemented in stub runtime");
     return SMC_ERR_NOT_IMPL;
-}
-
-/* -------------------------------------------------------------------------- */
-/* Expression metadata (stub: not implemented in Milestone 1)                 */
-/* -------------------------------------------------------------------------- */
-
-int smc_expr_count(void) {
-    return 0;
-}
-
-size_t smc_expr_arity(smc_expr_id_t id) {
-    (void)id;
-    return 0;
-}
-
-const char *smc_expr_source(smc_expr_id_t id) {
-    (void)id;
-    return NULL;
 }
 
 /* -------------------------------------------------------------------------- */

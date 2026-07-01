@@ -67,6 +67,29 @@ def test_not_implemented() -> None:
         raise AssertionError("expected SMCError because smc.call is stubbed")
 
 
+def test_generated_call() -> None:
+    """Exercise the Tier 2 hot path when a generated dispatch table is linked."""
+    count = smc.expr_count()
+    if count == 0:
+        print("SKIP: test_generated_call (no generated dispatch table)")
+        return
+
+    for expr_id in range(1, count + 1):
+        source = smc.expr_source(expr_id)
+        assert source is not None
+        expected = smc.eval(source)
+        value = smc.call(expr_id)
+        assert approx_eq(value, expected), f"id={expr_id} source={source!r}"
+
+    # Invalid IDs should still raise.
+    try:
+        smc.call(0)
+    except smc.SMCError:
+        pass
+    else:
+        raise AssertionError("expected SMCError for expr_id 0")
+
+
 def main() -> int:
     tests = [
         test_global_eval,
@@ -75,6 +98,7 @@ def main() -> int:
         test_context_manual_cleanup,
         test_error_handling,
         test_not_implemented,
+        test_generated_call,
     ]
     for test in tests:
         try:
