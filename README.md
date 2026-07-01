@@ -175,14 +175,14 @@ The project is organized into implementation phases:
 > **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
 
-## C & Python Embedding (New — Milestone 1 Complete)
+## C & Python Embedding (Milestones 1 & 2 Complete)
 
 SMC is now usable as an embeddable library from **C** and **Python**. The embedding layer is staged across three milestones:
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a proof-of-concept C generator |
-| **Milestone 2** | 🚧 Planned | Production generated-code API (`smc_call_*`) with stable expression IDs and a real cache walker |
+| **Milestone 2** | ✅ Complete | Production generated-code API (`smc_call_*`) with stable expression IDs, real cache walker, and C/Python acceptance tests |
 | **Milestone 3** | 🚧 Planned | CMake package, `pip install`, integration guide, and game/simulation benchmarks |
 
 ### Architecture
@@ -191,16 +191,16 @@ SMC is now usable as an embeddable library from **C** and **Python**. The embedd
 - **Development / tooling target**: An optional embedded SBCL runtime for full self-modification during prototyping.
 - **Python binding**: Pure-Python `ctypes` wrapper with zero build step.
 
-### C API v1 (Milestone 1)
+### C API v1
 
-The stable header is `include/smc.h`. Two API tiers are planned:
+The stable header is `include/smc.h`. Two API tiers are exposed:
 
 - **Tier 1 — Development/tooling** (`smc_eval_double`, `smc_eval_float`, `smc_eval_int`): evaluate arbitrary expression strings.
 - **Tier 2 — Production hot path** (`smc_call_double`, `smc_call_float`, `smc_call_int`): call cached expressions by stable integer ID with no string parsing.
 
-Milestone 1 implements Tier 1 in the stub runtime and Tier 2 in generated C files. Tier 2 is not yet available in the stub runtime.
+Tier 2 is implemented by a generated dispatch table (`smc_generated.c`) produced by the build-time optimizer. The generated table overrides weak fallback stubs in `src/c/smc_generated_runtime.c`.
 
-### Python API (Milestone 1)
+### Python API
 
 ```python
 import smc
@@ -213,27 +213,53 @@ print(smc.eval_int("7 / 2"))        # 3
 with smc.Context(level=2) as ctx:
     print(ctx.eval("10 - 4 / 2"))   # 8.0
 
-# Tier 2: production generated-code call (planned for Milestone 2)
-# print(smc.call(42, 0.6, 0.0, 0.8))
+# Tier 2: production generated-code call by stable ID
+print(smc.expr_count())             # number of generated expressions
+print(smc.expr_source(1))           # original expression string for id 1
+print(smc.call(1))                  # evaluate generated expression id 1
 ```
 
-### Building and Running (Milestone 1)
+### Building and Running
 
-**C shared library:**
+**Generate C source from the SMC cache:**
 ```bash
-gcc -std=c99 -Wall -Wextra -fPIC -Iinclude -shared src/c/smc_runtime_stub.c -o libsmc.so -lm
+sbcl --script scripts/generate-c-source.lisp build/smc_generated.c
 ```
 
-**C example:**
+**C shared library with generated hot path:**
 ```bash
-gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c examples/c/hello_smc.c -o hello_smc -lm
-./hello_smc
+gcc -std=c99 -Wall -Wextra -fPIC -Iinclude -shared \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    -o build/libsmc.so -lm
 ```
 
-**C acceptance test:**
+**C example (hello):**
 ```bash
-gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c tests/c/test_stub_runtime.c -o test_stub_runtime -lm
-./test_stub_runtime
+gcc -std=c99 -Wall -Wextra -Iinclude \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    examples/c/hello_smc.c -o build/hello_smc -lm
+./build/hello_smc
+```
+
+**C example (renderer hot path):**
+```bash
+gcc -std=c99 -Wall -Wextra -Iinclude \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    examples/c/renderer_hotpath.c -o build/renderer_hotpath -lm
+./build/renderer_hotpath
+```
+
+**C acceptance tests:**
+```bash
+# Tier 1 stub runtime (link smc_generated_runtime.c for weak Tier 2 fallbacks)
+gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c tests/c/test_stub_runtime.c -o build/test_stub_runtime -lm
+./build/test_stub_runtime
+
+# Tier 2 generated code
+gcc -std=c99 -Wall -Wextra -Iinclude \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    tests/c/test_generated.c -o build/test_generated -lm
+./build/test_generated
 ```
 
 **Python example:**
@@ -246,17 +272,12 @@ PYTHONPATH=python python3 examples/python/hello_smc.py
 PYTHONPATH=python python3 tests/python/test_smc.py
 ```
 
-**Generate C source from SBCL:**
-```bash
-sbcl --script scripts/generate-c-source.lisp /tmp/smc_generated.c
-```
-
-### Limitations (Milestone 1)
+### Limitations
 
 - The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, and unary `+`/`-`.
-- Variables, cache persistence, source generation, and Tier 2 `smc_call_*` return `SMC_ERR_NOT_IMPL` in the stub runtime.
+- Variables, cache persistence, and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
-- The generator script emits a small hard-coded dispatch table as a proof of concept.
+- The generated-code path currently emits ground (variable-free) scalar expressions only.
 
 See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md) for the full roadmap and design rationale.
 

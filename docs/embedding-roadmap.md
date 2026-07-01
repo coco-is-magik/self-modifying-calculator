@@ -1,7 +1,7 @@
 # SMC Embedding Roadmap — C & Python Production Integration
 
 > **Status**: Currently active and prioritized plan  
-> **Last Updated**: 2026-06-30  
+> **Last Updated**: 2026-07-01  
 > **Target**: Evolve the Self-Modifying Calculator (SMC) from a Common Lisp research project into a production-quality embeddable adaptive computation library for C and Python applications.
 
 ---
@@ -406,17 +406,60 @@ sbcl --script scripts/generate-c-source.lisp /tmp/smc_generated.c
 - The SBCL-backed runtime is a placeholder; wiring it requires Lisp-side `sb-alien` callback registration and an image build step.
 - The generator script emits a small hard-coded dispatch table as a proof of concept. Milestone 2 will walk the real SMC cache.
 
-## 11. Next Step
+## 11. Milestone 2 Status
 
-Begin **Milestone 2** implementation:
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| `include/smc.h` Tier 2 | ✅ Complete | `smc_call_*`, `smc_expr_id_t`, expression metadata |
+| `scripts/generate-c-source.lisp` | ✅ Complete | Walks the real SMC cache, assigns stable IDs, emits C dispatch table |
+| `src/c/smc_generated_runtime.c` | ✅ Complete | Weak fallback Tier 2 stubs; overridden by generated `smc_generated.c` |
+| `examples/c/renderer_hotpath.c` | ✅ Complete | Demonstrates `smc_call_double` in a tight loop |
+| Python `smc.call` + metadata | ✅ Complete | `smc.call`, `smc.expr_count`, `smc.expr_arity`, `smc.expr_source` |
+| Acceptance tests | ✅ Complete | `tests/c/test_generated.c` and `tests/python/test_smc.py` pass against generated code |
 
-1. Extend `include/smc.h` if needed for generated-code metadata.
-2. Implement a real C code generator that walks the SMC cache and assigns stable IDs.
-3. Provide `src/c/smc_generated_runtime.c` to link generated dispatch tables with the Tier 1 fallback.
-4. Add `examples/c/renderer_hotpath.c` demonstrating `smc_call_double`.
-5. Update the Python binding to expose `smc.call(expr_id, *args)`.
-6. Add acceptance test: generated C code runs without SBCL and matches SBCL results.
+### How to build and run Milestone 2
+
+**Generate C source from the SMC cache:**
+```bash
+sbcl --script scripts/generate-c-source.lisp build/smc_generated.c
+```
+
+**C shared library with generated hot path:**
+```bash
+gcc -std=c99 -Wall -Wextra -fPIC -Iinclude -shared \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    -o build/libsmc.so -lm
+```
+
+**C generated-code acceptance test:**
+```bash
+gcc -std=c99 -Wall -Wextra -Iinclude \
+    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
+    tests/c/test_generated.c -o build/test_generated -lm
+./build/test_generated
+```
+
+**Python generated-code acceptance test:**
+```bash
+PYTHONPATH=python python3 tests/python/test_smc.py
+```
+
+### Known limitations of Milestone 2
+
+- The generator currently emits ground (variable-free) scalar expressions only.
+- Free-variable expressions require arity tracking and argument substitution in generated C.
+- The generated macro names are verbose; a future revision may use short hashes.
+
+## 12. Next Step
+
+Begin **Milestone 3** implementation:
+
+1. Add a `CMakeLists.txt` with static/shared library options.
+2. Add `python/pyproject.toml` for `pip install -e python/`.
+3. Write `docs/integration-guide.md` with game/simulation examples.
+4. Add a benchmark suite comparing generated C, SBCL runtime, and conventional evaluation.
+5. Provide a Python renderer hot-path example.
 
 ---
 
-*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestone 1 is complete.*
+*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestones 1 and 2 are complete.*
