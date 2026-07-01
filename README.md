@@ -175,7 +175,7 @@ The project is organized into implementation phases:
 > **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
 
-## C & Python Embedding (Milestones 1 & 2 Complete)
+## C & Python Embedding (All Milestones Complete)
 
 SMC is now usable as an embeddable library from **C** and **Python**. The embedding layer is staged across three milestones:
 
@@ -183,7 +183,7 @@ SMC is now usable as an embeddable library from **C** and **Python**. The embedd
 |-----------|--------|-------------|
 | **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a proof-of-concept C generator |
 | **Milestone 2** | ✅ Complete | Production generated-code API (`smc_call_*`) with stable expression IDs, real cache walker, and C/Python acceptance tests |
-| **Milestone 3** | 🚧 Planned | CMake package, `pip install`, integration guide, and game/simulation benchmarks |
+| **Milestone 3** | ✅ Complete | CMake package, `pyproject.toml`, integration guide, and game/simulation benchmarks |
 
 ### Architecture
 
@@ -221,55 +221,55 @@ print(smc.call(1))                  # evaluate generated expression id 1
 
 ### Building and Running
 
-**Generate C source from the SMC cache:**
+**CMake (recommended):**
 ```bash
+# 1. Generate C source from the SMC cache
 sbcl --script scripts/generate-c-source.lisp build/smc_generated.c
+
+# 2. Configure and build
+cmake -B build -S . -DSMC_GENERATED_SOURCE=build/smc_generated.c
+cmake --build build
+
+# 3. Run C tests
+ctest --test-dir build --output-on-failure
 ```
 
-**C shared library with generated hot path:**
+**CMake options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `SMC_BUILD_SHARED` | ON | Build `libsmc.so` |
+| `SMC_BUILD_STATIC` | ON | Build `libsmc.a` and `libsmc_generated.a` |
+| `SMC_BUILD_EXAMPLES` | ON | Build `hello_smc` and `renderer_hotpath` |
+| `SMC_BUILD_TESTS` | ON | Build C acceptance tests |
+| `SMC_BUILD_BENCHMARKS` | ON | Build `benchmark_generated` |
+| `SMC_GENERATED_SOURCE` | "" | Path to `smc_generated.c` |
+
+**Python install from source:**
 ```bash
-gcc -std=c99 -Wall -Wextra -fPIC -Iinclude -shared \
-    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
-    -o build/libsmc.so -lm
+pip install -e python/
+export LD_LIBRARY_PATH=$PWD/build:$LD_LIBRARY_PATH
+python3 -c "import smc; print(smc.call(1))"
 ```
 
-**C example (hello):**
+**Python examples:**
 ```bash
-gcc -std=c99 -Wall -Wextra -Iinclude \
-    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
-    examples/c/hello_smc.c -o build/hello_smc -lm
-./build/hello_smc
-```
-
-**C example (renderer hot path):**
-```bash
-gcc -std=c99 -Wall -Wextra -Iinclude \
-    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
-    examples/c/renderer_hotpath.c -o build/renderer_hotpath -lm
-./build/renderer_hotpath
-```
-
-**C acceptance tests:**
-```bash
-# Tier 1 stub runtime (link smc_generated_runtime.c for weak Tier 2 fallbacks)
-gcc -std=c99 -Wall -Wextra -Iinclude src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c tests/c/test_stub_runtime.c -o build/test_stub_runtime -lm
-./build/test_stub_runtime
-
-# Tier 2 generated code
-gcc -std=c99 -Wall -Wextra -Iinclude \
-    src/c/smc_runtime_stub.c src/c/smc_generated_runtime.c build/smc_generated.c \
-    tests/c/test_generated.c -o build/test_generated -lm
-./build/test_generated
-```
-
-**Python example:**
-```bash
-PYTHONPATH=python python3 examples/python/hello_smc.py
+PYTHONPATH=python LD_LIBRARY_PATH=build python3 examples/python/hello_smc.py
+PYTHONPATH=python LD_LIBRARY_PATH=build python3 examples/python/renderer_hotpath.py
 ```
 
 **Python acceptance test:**
 ```bash
-PYTHONPATH=python python3 tests/python/test_smc.py
+PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/python/test_smc.py
+```
+
+**Benchmarks:**
+```bash
+# C
+./build/benchmark_generated
+
+# Python
+PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embedding.py
 ```
 
 ### Limitations
@@ -279,7 +279,7 @@ PYTHONPATH=python python3 tests/python/test_smc.py
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
 - The generated-code path currently emits ground (variable-free) scalar expressions only.
 
-See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md) for the full roadmap and design rationale.
+See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md) and [`docs/integration-guide.md`](docs/integration-guide.md) for the full roadmap and integration details.
 
 ---
 

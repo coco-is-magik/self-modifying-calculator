@@ -2,7 +2,7 @@
 
 > **Status**: Currently active and prioritized plan  
 > **Last Updated**: 2026-07-01  
-> **Target**: Evolve the Self-Modifying Calculator (SMC) from a Common Lisp research project into a production-quality embeddable adaptive computation library for C and Python applications.
+> **Target**: Evolve the Self-Modifying Calculator (SMC) from a Common Lisp research project into a production-quality embeddable adaptive computation library for C and Python applications. Milestones 1–3 are complete.
 
 ---
 
@@ -450,16 +450,51 @@ PYTHONPATH=python python3 tests/python/test_smc.py
 - Free-variable expressions require arity tracking and argument substitution in generated C.
 - The generated macro names are verbose; a future revision may use short hashes.
 
-## 12. Next Step
+## 12. Milestone 3 Status
 
-Begin **Milestone 3** implementation:
+| Deliverable | Status | Notes |
+|-------------|--------|-------|
+| `CMakeLists.txt` | ✅ Complete | Static/shared `libsmc`, optional `libsmc_generated`, examples, tests, benchmarks |
+| `python/pyproject.toml` | ✅ Complete | `pip install -e python/` ready (requires pip in target environment) |
+| `docs/integration-guide.md` | ✅ Complete | C and Python integration guide with workflow and troubleshooting |
+| C benchmark suite | ✅ Complete | `tests/benchmarks/benchmark_generated.c` compares Tier 1 vs Tier 2 |
+| Python benchmark suite | ✅ Complete | `tests/benchmarks/benchmark_embedding.py` compares pure Python, Tier 1, Tier 2 |
+| Python renderer hot path | ✅ Complete | `examples/python/renderer_hotpath.py` |
 
-1. Add a `CMakeLists.txt` with static/shared library options.
-2. Add `python/pyproject.toml` for `pip install -e python/`.
-3. Write `docs/integration-guide.md` with game/simulation examples.
-4. Add a benchmark suite comparing generated C, SBCL runtime, and conventional evaluation.
-5. Provide a Python renderer hot-path example.
+### How to build and run Milestone 3
+
+**CMake build with generated hot path:**
+```bash
+sbcl --script scripts/generate-c-source.lisp build/smc_generated.c
+cmake -B build -S . -DSMC_GENERATED_SOURCE=build/smc_generated.c
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+**Python install and run:**
+```bash
+pip install -e python/
+export LD_LIBRARY_PATH=$PWD/build:$LD_LIBRARY_PATH
+python3 -c "import smc; print(smc.call(1))"
+python3 examples/python/renderer_hotpath.py
+python3 tests/benchmarks/benchmark_embedding.py
+```
+
+### Known limitations of Milestone 3
+
+- `pip install` requires a system with `pip` available; the `pyproject.toml` has been validated syntactically.
+- The benchmark suite uses the current warm corpus; representative trace corpora are a future enhancement.
+
+## 13. Next Steps
+
+Future work beyond Milestone 3:
+
+1. Support free-variable expressions in the generated C path (arity > 0).
+2. Provide a `smc.compile(expr)` Python helper that returns a callable backed by `smc_call_*`.
+3. Add vector/matrix support to the C ABI and generated code.
+4. Build a headless SBCL tool that warms the cache on a trace corpus and emits `smc_generated.c` in CI.
+5. Package and publish to PyPI once the API stabilizes.
 
 ---
 
-*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestones 1 and 2 are complete.*
+*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestones 1, 2, and 3 are complete.*
