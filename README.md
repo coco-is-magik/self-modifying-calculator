@@ -274,10 +274,10 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embed
 
 ### Limitations
 
-- The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, and unary `+`/`-`.
-- Variables, cache persistence, and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
+- The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, unary `+`/`-`, and variable binding.
+- Cache persistence and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
-- The generated-code path currently emits ground (variable-free) scalar expressions only.
+- The generated-code path supports scalar expressions with free variables; vector/matrix return values are not yet supported.
 
 See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md), [`docs/integration-guide.md`](docs/integration-guide.md), and the active C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) for the full roadmap and integration details.
 
