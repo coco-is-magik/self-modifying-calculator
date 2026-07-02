@@ -193,9 +193,9 @@ SMC is now usable as an embeddable library from **C** and **Python**. The embedd
 
 ### C API v1
 
-The stable header is `include/smc.h`. Two API tiers are exposed:
+The stable header is `include/smc.h`. The formal ABI contract is in `docs/abi-contract.md`. Two API tiers are exposed:
 
-- **Tier 1 — Development/tooling** (`smc_eval_double`, `smc_eval_float`, `smc_eval_int`): evaluate arbitrary expression strings.
+- **Tier 1 — Development/tooling** (`smc_eval_double`, `smc_eval_float`, `smc_eval_int`): evaluate arbitrary expression strings. Not recommended for frame-budgeted hot loops.
 - **Tier 2 — Production hot path** (`smc_call_double`, `smc_call_float`, `smc_call_int`): call cached expressions by stable integer ID with no string parsing.
 
 Tier 2 is implemented by a generated dispatch table (`smc_generated.c`) produced by the build-time optimizer. The generated table overrides weak fallback stubs in `src/c/smc_generated_runtime.c`.

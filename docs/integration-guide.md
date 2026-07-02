@@ -161,9 +161,11 @@ For a game or simulation:
 
 ## Threading
 
-- `smc_call_*` is stateless and lock-free. Multiple threads may call it concurrently.
-- The global context (`smc_eval_double`, etc.) is internally serialized.
-- Use explicit `smc_context_t*` instances per thread for parallel Tier 1 evaluation.
+- `smc_call_*` is stateless and read-only. Multiple threads may call it concurrently, provided the generated dispatch table is immutable.
+- The global context (`smc_eval_double`, etc.) is single-threaded by default. Build with `SMC_THREAD_SAFE=ON` to enable internal locking, or use explicit `smc_context_t*` instances per thread.
+- `smc_init` and `smc_shutdown` are not thread-safe and must be called once per process from a single thread.
+
+See `docs/abi-contract.md` for the full thread-safety contract.
 
 ---
 

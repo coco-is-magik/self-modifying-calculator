@@ -6,7 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - C API maturity plan in `docs/c-api-maturity-plan.md`, organized into eight phases to be implemented one at a time.
-- Documentation pointers updated in `README.md`, `docs/embedding-roadmap.md`, and `docs/KNOWN-ISSUES.md` to reference the new C API maturity plan.
+- Formal ABI contract in `docs/abi-contract.md` covering versioning, struct layout, ownership, null-pointer behavior, pre-init rules, thread safety, and error codes.
+- Header `include/smc.h` rewritten with explicit ABI contract comments, `@tooling`/`@production` tier labels, and new error codes (`SMC_ERR_ABI`, `SMC_ERR_ARITY`, `SMC_ERR_NOT_FOUND`, `SMC_ERR_THREAD`, `SMC_ERR_SHUTDOWN`).
+- Introspection functions `smc_abi_version()` and `smc_runtime_kind()`.
+- Python bindings for `smc.abi_version()` and `smc.runtime_kind()`.
+- Documentation pointers updated in `README.md`, `docs/embedding-roadmap.md`, `docs/integration-guide.md`, and `docs/KNOWN-ISSUES.md` to reference the new C API maturity plan and ABI contract.
 - Function call syntax in the string parser: `sin(x)`, `dot(a,b)`, `vec3(x,y,z)`, etc.
 - Parser cache eviction with configurable `*parse-cache-max-size*` (default 1000).
 - Automatic cache persistence: `*auto-persist-cache*` loads the cache on startup and saves it on exit.
