@@ -1,8 +1,8 @@
 # SMC Embedding Roadmap — C & Python Production Integration
 
-> **Status**: Currently active and prioritized plan  
-> **Last Updated**: 2026-07-01  
-> **Target**: Evolve the Self-Modifying Calculator (SMC) from a Common Lisp research project into a production-quality embeddable adaptive computation library for C and Python applications. Milestones 1–3 are complete.
+> **Status**: C API maturity work now tracked in `docs/c-api-maturity-plan.md`  
+> **Last Updated**: 2026-07-02  
+> **Target**: Evolve the Self-Modifying Calculator (SMC) from a Common Lisp research project into a production-quality embeddable adaptive computation library for C and Python applications. Milestones 1–3 are complete; C API maturity is now the active workstream.
 
 ---
 
@@ -487,14 +487,20 @@ python3 tests/benchmarks/benchmark_embedding.py
 
 ## 13. Next Steps
 
-Future work beyond Milestone 3:
+C API maturity work is now tracked in **`docs/c-api-maturity-plan.md`**. That plan is organized into eight phases and should be implemented one phase at a time, starting with Phase 1 (ABI contract & header stabilization).
 
-1. Support free-variable expressions in the generated C path (arity > 0).
-2. Provide a `smc.compile(expr)` Python helper that returns a callable backed by `smc_call_*`.
-3. Add vector/matrix support to the C ABI and generated code.
-4. Build a headless SBCL tool that warms the cache on a trace corpus and emits `smc_generated.c` in CI.
-5. Package and publish to PyPI once the API stabilizes.
+High-level themes from the maturity plan:
+
+1. Formal ABI contract and header stabilization.
+2. Tier 1 completion or explicit tooling-only labeling.
+3. Generated C support for non-ground (argumentized) expressions.
+4. Hardened, deterministic, versioned C code generator.
+5. C-first correctness suite covering failure paths.
+6. Robust packaging: CMake config, pkg-config, symbol visibility, cross-platform.
+7. Threading model, observability counters, and performance contracts.
+8. Domain-facing renderer example and explicit fallback model.
+9. Sanitizers, fuzzing, and final verification.
 
 ---
 
-*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestones 1, 2, and 3 are complete.*
+*This document is the currently active and prioritized plan for SMC C/Python embedding. Milestones 1, 2, and 3 are complete. C API maturity is the active workstream; see `docs/c-api-maturity-plan.md`.*

@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- C API maturity plan in `docs/c-api-maturity-plan.md`, organized into eight phases to be implemented one at a time.
+- Documentation pointers updated in `README.md`, `docs/embedding-roadmap.md`, and `docs/KNOWN-ISSUES.md` to reference the new C API maturity plan.
 - Function call syntax in the string parser: `sin(x)`, `dot(a,b)`, `vec3(x,y,z)`, etc.
 - Parser cache eviction with configurable `*parse-cache-max-size*` (default 1000).
 - Automatic cache persistence: `*auto-persist-cache*` loads the cache on startup and saves it on exit.

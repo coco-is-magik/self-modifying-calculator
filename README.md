@@ -279,7 +279,7 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embed
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
 - The generated-code path currently emits ground (variable-free) scalar expressions only.
 
-See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md) and [`docs/integration-guide.md`](docs/integration-guide.md) for the full roadmap and integration details.
+See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md), [`docs/integration-guide.md`](docs/integration-guide.md), and the active C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) for the full roadmap and integration details.
 
 ---
 

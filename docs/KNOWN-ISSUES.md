@@ -63,9 +63,17 @@
 
 ---
 
+## C API Maturity
+
+10. **C API maturity plan created** (2026-07-02)
+    - **Description**: The C API is well-shaped but not yet production-mature. A new plan in `docs/c-api-maturity-plan.md` tracks eight phases of hardening: ABI contract, Tier 1 honesty, Tier 2 argumentized expressions, deterministic generator, C-first correctness suite, packaging, threading/observability, domain examples, and sanitizers/fuzzing.
+    - **Impact**: C API work now has a structured, phase-by-phase roadmap.
+    - **Resolution**: Created `docs/c-api-maturity-plan.md`; updated `docs/embedding-roadmap.md` and `README.md` to reference it.
+    - **Planned resolution**: Implement phases one at a time, starting with Phase 1 (ABI contract & header stabilization).
+
 ## Documentation
 
-10. **README test command simplified** (2026-06-28)
+11. **README test command simplified** (2026-06-28)
     - **Description**: The README test command now loads a single `tests/load-all-tests.lisp` helper.
     - **Impact**: Test invocation is simpler and easier to maintain.
     - **Resolution**: `tests/load-all-tests.lisp` loads all core, math, and integration tests and calls `run-all-tests`. README updated.
