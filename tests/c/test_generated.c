@@ -78,13 +78,18 @@ int main(void) {
         ASSERT_NEAR(value, expected, 1e-9, source);
     }
 
-    /* Verify invalid ID returns SMC_ERR_INVALID. */
+    /* Verify invalid ID returns SMC_ERR_NOT_FOUND. */
     double dummy = 0.0;
     rc = smc_call_double((smc_expr_id_t)0, NULL, 0, &dummy);
-    ASSERT_EQ(rc, SMC_ERR_INVALID, "invalid expr_id 0");
+    ASSERT_EQ(rc, SMC_ERR_NOT_FOUND, "invalid expr_id 0");
 
     rc = smc_call_double((smc_expr_id_t)(count + 1), NULL, 0, &dummy);
-    ASSERT_EQ(rc, SMC_ERR_INVALID, "invalid expr_id count+1");
+    ASSERT_EQ(rc, SMC_ERR_NOT_FOUND, "invalid expr_id count+1");
+
+    /* Verify wrong arity returns SMC_ERR_ARITY. */
+    double args[1] = {1.0};
+    rc = smc_call_double((smc_expr_id_t)1, args, 1, &dummy);
+    ASSERT_EQ(rc, SMC_ERR_ARITY, "wrong arity for ground expr");
 
     rc = smc_shutdown();
     ASSERT_OK(rc, "smc_shutdown");

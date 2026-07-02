@@ -61,15 +61,78 @@ static void smc_set_errorf(int code, const char *fmt, ...) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Variables                                                                  */
+/* -------------------------------------------------------------------------- */
+
+#define SMC_MAX_VARIABLES 64
+
+typedef struct {
+    char   name[64];
+    double value;
+} smc_variable_t;
+
+struct smc_variable_table {
+    smc_variable_t entries[SMC_MAX_VARIABLES];
+    size_t         count;
+};
+
+static void smc_variable_table_init(struct smc_variable_table *vt) {
+    vt->count = 0;
+}
+
+static int smc_variable_table_set(struct smc_variable_table *vt,
+                                  const char *name, double value) {
+    if (!name) {
+        return SMC_ERR_INVALID;
+    }
+    size_t len = strlen(name);
+    if (len == 0 || len >= sizeof(vt->entries[0].name)) {
+        return SMC_ERR_INVALID;
+    }
+    for (size_t i = 0; i < vt->count; i++) {
+        if (strcmp(vt->entries[i].name, name) == 0) {
+            vt->entries[i].value = value;
+            return SMC_OK;
+        }
+    }
+    if (vt->count >= SMC_MAX_VARIABLES) {
+        return SMC_ERR_EVAL;  /* Reuse a generic error for "table full" */
+    }
+    memcpy(vt->entries[vt->count].name, name, len + 1);
+    vt->entries[vt->count].value = value;
+    vt->count++;
+    return SMC_OK;
+}
+
+static int smc_variable_table_get(struct smc_variable_table *vt,
+                                  const char *name, double *out) {
+    if (!name || !out) {
+        return SMC_ERR_INVALID;
+    }
+    for (size_t i = 0; i < vt->count; i++) {
+        if (strcmp(vt->entries[i].name, name) == 0) {
+            *out = vt->entries[i].value;
+            return SMC_OK;
+        }
+    }
+    return SMC_ERR_EVAL;  /* unbound variable */
+}
+
+static void smc_variable_table_clear(struct smc_variable_table *vt) {
+    vt->count = 0;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Context                                                                    */
 /* -------------------------------------------------------------------------- */
 
 struct smc_context {
     int   level;
     int   initialized;
+    struct smc_variable_table variables;
 };
 
-static smc_context_t g_global_context = {1, 0};
+static smc_context_t g_global_context = {1, 1, {{{{0}, 0.0}}, 0}};
 static int           g_initialized    = 0;
 
 /* -------------------------------------------------------------------------- */
@@ -101,6 +164,7 @@ smc_context_t *smc_context_create(int level) {
     }
     ctx->level = (level < 1) ? 1 : (level > 3 ? 3 : level);
     ctx->initialized = 1;
+    smc_variable_table_init(&ctx->variables);
     return ctx;
 }
 
@@ -178,7 +242,7 @@ static int smc_parser_expect(smc_parser_t *p, char c) {
     return SMC_OK;
 }
 
-static int smc_parse_expression(smc_parser_t *p, double *out);
+static int smc_parse_expression(smc_parser_t *p, smc_context_t *ctx, double *out);
 
 static int smc_parse_number(smc_parser_t *p, double *out) {
     smc_parser_skip_ws(p);
@@ -217,7 +281,26 @@ static int smc_parse_number(smc_parser_t *p, double *out) {
     return SMC_OK;
 }
 
-static int smc_parse_primary(smc_parser_t *p, double *out) {
+static int smc_parse_identifier(smc_parser_t *p, char *out, size_t out_size) {
+    smc_parser_skip_ws(p);
+    size_t start = p->pos;
+    if (start >= p->len || !isalpha((unsigned char)p->s[start])) {
+        smc_set_errorf(SMC_ERR_PARSE, "expected identifier at position %zu", p->pos);
+        return SMC_ERR_PARSE;
+    }
+    while (p->pos < p->len && (isalnum((unsigned char)p->s[p->pos]) || p->s[p->pos] == '_')) {
+        p->pos++;
+    }
+    size_t len = p->pos - start;
+    if (len >= out_size) {
+        len = out_size - 1;
+    }
+    memcpy(out, p->s + start, len);
+    out[len] = '\0';
+    return SMC_OK;
+}
+
+static int smc_parse_primary(smc_parser_t *p, smc_context_t *ctx, double *out) {
     smc_parser_skip_ws(p);
     int c = smc_parser_peek(p);
     if (c < 0) {
@@ -227,7 +310,7 @@ static int smc_parse_primary(smc_parser_t *p, double *out) {
 
     if (c == '(') {
         smc_parser_get(p);
-        int rc = smc_parse_expression(p, out);
+        int rc = smc_parse_expression(p, ctx, out);
         if (rc != SMC_OK) {
             return rc;
         }
@@ -238,12 +321,25 @@ static int smc_parse_primary(smc_parser_t *p, double *out) {
         return smc_parse_number(p, out);
     }
 
+    if (isalpha((unsigned char)c)) {
+        char name[64];
+        int rc = smc_parse_identifier(p, name, sizeof(name));
+        if (rc != SMC_OK) {
+            return rc;
+        }
+        rc = smc_variable_table_get(&ctx->variables, name, out);
+        if (rc != SMC_OK) {
+            smc_set_errorf(SMC_ERR_EVAL, "unbound variable '%s'", name);
+        }
+        return rc;
+    }
+
     smc_set_errorf(SMC_ERR_PARSE, "unexpected character '%c' at position %zu", c, p->pos);
     return SMC_ERR_PARSE;
 }
 
-static int smc_parse_power(smc_parser_t *p, double *out) {
-    int rc = smc_parse_primary(p, out);
+static int smc_parse_power(smc_parser_t *p, smc_context_t *ctx, double *out) {
+    int rc = smc_parse_primary(p, ctx, out);
     if (rc != SMC_OK) {
         return rc;
     }
@@ -251,7 +347,7 @@ static int smc_parse_power(smc_parser_t *p, double *out) {
         smc_parser_get(p);
         double rhs;
         /* Right-associative: a^b^c == a^(b^c) */
-        rc = smc_parse_power(p, &rhs);
+        rc = smc_parse_power(p, ctx, &rhs);
         if (rc != SMC_OK) {
             return rc;
         }
@@ -260,11 +356,11 @@ static int smc_parse_power(smc_parser_t *p, double *out) {
     return SMC_OK;
 }
 
-static int smc_parse_unary(smc_parser_t *p, double *out) {
+static int smc_parse_unary(smc_parser_t *p, smc_context_t *ctx, double *out) {
     int c = smc_parser_peek(p);
     if (c == '+' || c == '-') {
         smc_parser_get(p);
-        int rc = smc_parse_unary(p, out);
+        int rc = smc_parse_unary(p, ctx, out);
         if (rc != SMC_OK) {
             return rc;
         }
@@ -273,11 +369,11 @@ static int smc_parse_unary(smc_parser_t *p, double *out) {
         }
         return SMC_OK;
     }
-    return smc_parse_power(p, out);
+    return smc_parse_power(p, ctx, out);
 }
 
-static int smc_parse_term(smc_parser_t *p, double *out) {
-    int rc = smc_parse_unary(p, out);
+static int smc_parse_term(smc_parser_t *p, smc_context_t *ctx, double *out) {
+    int rc = smc_parse_unary(p, ctx, out);
     if (rc != SMC_OK) {
         return rc;
     }
@@ -288,7 +384,7 @@ static int smc_parse_term(smc_parser_t *p, double *out) {
         }
         smc_parser_get(p);
         double rhs;
-        rc = smc_parse_unary(p, &rhs);
+        rc = smc_parse_unary(p, ctx, &rhs);
         if (rc != SMC_OK) {
             return rc;
         }
@@ -305,8 +401,8 @@ static int smc_parse_term(smc_parser_t *p, double *out) {
     return SMC_OK;
 }
 
-static int smc_parse_expression(smc_parser_t *p, double *out) {
-    int rc = smc_parse_term(p, out);
+static int smc_parse_expression(smc_parser_t *p, smc_context_t *ctx, double *out) {
+    int rc = smc_parse_term(p, ctx, out);
     if (rc != SMC_OK) {
         return rc;
     }
@@ -317,7 +413,7 @@ static int smc_parse_expression(smc_parser_t *p, double *out) {
         }
         smc_parser_get(p);
         double rhs;
-        rc = smc_parse_term(p, &rhs);
+        rc = smc_parse_term(p, ctx, &rhs);
         if (rc != SMC_OK) {
             return rc;
         }
@@ -335,7 +431,6 @@ static int smc_parse_expression(smc_parser_t *p, double *out) {
 /* -------------------------------------------------------------------------- */
 
 static int smc_eval_double_impl(smc_context_t *ctx, const char *expr, double *out) {
-    (void)ctx;
     if (!g_initialized) {
         smc_set_error(SMC_ERR_INIT, "library not initialized");
         return SMC_ERR_INIT;
@@ -347,7 +442,7 @@ static int smc_eval_double_impl(smc_context_t *ctx, const char *expr, double *ou
 
     smc_parser_t p;
     smc_parser_init(&p, expr);
-    int rc = smc_parse_expression(&p, out);
+    int rc = smc_parse_expression(&p, ctx, out);
     if (rc != SMC_OK) {
         return rc;
     }
@@ -421,29 +516,37 @@ int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out) {
 /* -------------------------------------------------------------------------- */
 
 int smc_set_variable_double(const char *name, double value) {
-    (void)name;
-    (void)value;
-    smc_set_error(SMC_ERR_NOT_IMPL, "variables not implemented in stub runtime");
-    return SMC_ERR_NOT_IMPL;
+    if (!g_initialized) {
+        smc_set_error(SMC_ERR_INIT, "library not initialized");
+        return SMC_ERR_INIT;
+    }
+    return smc_variable_table_set(&g_global_context.variables, name, value);
 }
 
 int smc_set_variable_double_with(smc_context_t *ctx, const char *name, double value) {
-    (void)ctx;
-    (void)name;
-    (void)value;
-    smc_set_error(SMC_ERR_NOT_IMPL, "variables not implemented in stub runtime");
-    return SMC_ERR_NOT_IMPL;
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    return smc_variable_table_set(&ctx->variables, name, value);
 }
 
 int smc_clear_variables(void) {
-    smc_set_error(SMC_ERR_NOT_IMPL, "variables not implemented in stub runtime");
-    return SMC_ERR_NOT_IMPL;
+    if (!g_initialized) {
+        smc_set_error(SMC_ERR_INIT, "library not initialized");
+        return SMC_ERR_INIT;
+    }
+    smc_variable_table_clear(&g_global_context.variables);
+    return SMC_OK;
 }
 
 int smc_clear_variables_with(smc_context_t *ctx) {
-    (void)ctx;
-    smc_set_error(SMC_ERR_NOT_IMPL, "variables not implemented in stub runtime");
-    return SMC_ERR_NOT_IMPL;
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    smc_variable_table_clear(&ctx->variables);
+    return SMC_OK;
 }
 
 /* -------------------------------------------------------------------------- */

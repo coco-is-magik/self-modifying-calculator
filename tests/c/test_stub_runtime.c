@@ -88,9 +88,16 @@ int main(void) {
     rc = smc_call_double(0, NULL, 0, &d);
     CHECK(rc != 0);
 
-    /* Variables not implemented in stub */
+    /* Variables now implemented in stub */
     rc = smc_set_variable_double("x", 3.0);
-    CHECK(rc != 0);
+    CHECK(rc == 0);
+    rc = smc_eval_double("x + 2", &d);
+    CHECK(rc == 0);
+    CHECK(d == 5.0);
+    rc = smc_clear_variables();
+    CHECK(rc == 0);
+    rc = smc_eval_double("x + 2", &d);
+    CHECK(rc != 0);  /* unbound after clear */
 
     /* Cache clear is a no-op in stub */
     rc = smc_cache_clear();

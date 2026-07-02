@@ -51,14 +51,19 @@ def test_error_handling() -> None:
         raise AssertionError("expected SMCError for malformed expression")
 
 
-def test_not_implemented() -> None:
+def test_variables() -> None:
+    smc.set_variable("x", 3.0)
+    assert approx_eq(smc.eval("x + 2"), 5.0)
+    smc.clear_variables()
     try:
-        smc.set_variable("x", 3.0)
+        smc.eval("x + 2")
     except smc.SMCError as e:
         assert e.code != 0
     else:
-        raise AssertionError("expected SMCError because variables are stubbed")
+        raise AssertionError("expected SMCError for unbound variable after clear")
 
+
+def test_not_implemented() -> None:
     try:
         smc.call(42, 1.0, 2.0)
     except smc.SMCError as e:
@@ -97,6 +102,7 @@ def main() -> int:
         test_context,
         test_context_manual_cleanup,
         test_error_handling,
+        test_variables,
         test_not_implemented,
         test_generated_call,
     ]

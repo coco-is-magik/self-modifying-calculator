@@ -76,9 +76,17 @@
   "Return the value of a constant AST node."
   (second node))
 
+(defun ast-variable-p (node)
+  "Return true if NODE is a variable AST node."
+  (and (consp node) (eq (car node) :variable)))
+
+(defun ast-variable-name (node)
+  "Return the name of a variable AST node."
+  (second node))
+
 (defun ast-operator-p (node)
   "Return true if NODE is an operator AST node."
-  (and (consp node) (symbolp (car node)) (not (ast-constant-p node))))
+  (and (consp node) (symbolp (car node)) (not (ast-constant-p node)) (not (ast-variable-p node))))
 
 (defun ast-op (node)
   "Return the operator symbol of an operator AST node."
@@ -87,6 +95,29 @@
 (defun ast-args (node)
   "Return the arguments of an operator AST node."
   (cdr node))
+
+(defun expression-variables (node)
+  "Return the ordered, deduplicated list of variable names appearing in NODE."
+  (let ((seen '()))
+    (labels ((walk (n)
+               (cond
+                 ((ast-variable-p n)
+                  (let ((name (ast-variable-name n)))
+                    (unless (member name seen)
+                      (setf seen (append seen (list name))))))
+                 ((consp n)
+                  (dolist (child (cdr n))
+                    (walk child))))))
+      (walk node)
+      seen)))
+
+(defun expression-arity (node)
+  "Return the number of free variables in NODE."
+  (length (expression-variables node)))
+
+(defun variable-index (node var)
+  "Return the 0-based argument index of VAR in NODE's variable ordering."
+  (position var (expression-variables node)))
 
 (defun c-operator (op)
   "Map a Lisp operator keyword to a C infix operator string."
@@ -98,14 +129,18 @@
     (:^ "pow")
     (otherwise nil)))
 
-(defun emit-c-expression (node)
-  "Emit a C expression string for a ground AST NODE."
+(defun emit-c-expression (node root)
+  "Emit a C expression string for AST NODE. ROOT is the top-level expression
+   used to resolve variable argument indices."
   (cond
     ((ast-constant-p node)
      (let ((v (ast-constant-value node)))
        (if (integerp v)
            (format nil "~D.0" v)
            (format nil "~F" (coerce v 'double-float)))))
+    ((ast-variable-p node)
+     (let ((idx (variable-index root (ast-variable-name node))))
+       (format nil "args[~D]" idx)))
     ((ast-operator-p node)
      (let ((op (ast-op node))
            (args (ast-args node)))
@@ -113,34 +148,38 @@
          ((eq op :vec3)
           ;; Represent vec3 as a struct literal. The generated runtime does not
           ;; yet support vector return values, so this is emitted as a comment.
-          (format nil "/* vec3(~{~A~^, ~}) */ 1.0" (mapcar #'emit-c-expression args)))
+          (format nil "/* vec3(~{~A~^, ~}) */ 1.0" (mapcar (lambda (a) (emit-c-expression a root)) args)))
          ((and (eq op :^) (= (length args) 2))
           (format nil "pow(~A, ~A)"
-                  (emit-c-expression (first args))
-                  (emit-c-expression (second args))))
+                  (emit-c-expression (first args) root)
+                  (emit-c-expression (second args) root)))
          ((member op '(:+ :*))
           (format nil "(~{~A~^ ~A ~})"
                   (loop for arg in args
                         for i from 0
-                        collect (emit-c-expression arg)
+                        collect (emit-c-expression arg root)
                         when (< i (1- (length args)))
                         collect (c-operator op))))
          ((member op '(:- :/))
           (if (= (length args) 1)
-              (format nil "-(~A)" (emit-c-expression (first args)))
+              (format nil "-(~A)" (emit-c-expression (first args) root))
               (format nil "(~{~A~^ ~A ~})"
                       (loop for arg in args
                             for i from 0
-                            collect (emit-c-expression arg)
+                            collect (emit-c-expression arg root)
                             when (< i (1- (length args)))
                             collect (c-operator op)))))
          (t
           ;; Generic function call syntax for other operators.
           (format nil "~A(~{~A~^, ~})"
                   (string-downcase (symbol-name op))
-                  (mapcar #'emit-c-expression args))))))
+                  (mapcar (lambda (a) (emit-c-expression a root)) args))))))
     (t
      (error "Cannot emit C expression for node: ~S" node))))
+
+(defun emit-c-expression-ground (node)
+  "Emit a C expression string for a ground AST NODE (no variables)."
+  (emit-c-expression node node))
 
 (defun collect-cache-entries (cache)
   "Return a list of (ast . value) entries from CACHE, sorted by AST string."
@@ -185,9 +224,11 @@
       (loop for (ast . value) in entries
             for expr in exprs
             for id from 1
-            do (let ((c-expr (emit-c-expression ast)))
-                 (format stream "int smc_expr_~A(double *out) {~%"
+            do (let* ((arity (expression-arity ast))
+                      (c-expr (emit-c-expression ast ast)))
+                 (format stream "int smc_expr_~A(const double *args, double *out) {~%"
                          (c-identifier expr))
+                 (format stream "    (void)args;~%")
                  (format stream "    *out = ~A;~%" c-expr)
                  (format stream "    return SMC_OK;~%")
                  (format stream "}~%~%")))
@@ -197,15 +238,17 @@
       (format stream "int smc_call_double(smc_expr_id_t expr_id,~%")
       (format stream "                    const double *args, size_t argc,~%")
       (format stream "                    double *out) {~%")
-      (format stream "    (void)args;~%")
-      (format stream "    (void)argc;~%")
       (format stream "    switch (expr_id) {~%")
-      (loop for expr in exprs
+      (loop for (ast . value) in entries
+            for expr in exprs
             for id from 1
-            do (format stream "        case SMC_EXPR_~A: return smc_expr_~A(out);~%"
-                       (string-upcase (c-identifier expr))
-                       (c-identifier expr)))
-      (format stream "        default: return SMC_ERR_INVALID;~%")
+            do (let ((arity (expression-arity ast)))
+                 (format stream "        case SMC_EXPR_~A:~%"
+                         (string-upcase (c-identifier expr)))
+                 (format stream "            if (argc != ~D) return SMC_ERR_ARITY;~%" arity)
+                 (format stream "            return smc_expr_~A(args, out);~%"
+                         (c-identifier expr))))
+      (format stream "        default: return SMC_ERR_NOT_FOUND;~%")
       (format stream "    }~%")
       (format stream "}~%~%")
 
@@ -216,8 +259,15 @@
       (format stream "}~%~%")
 
       (format stream "size_t smc_expr_arity(smc_expr_id_t id) {~%")
-      (format stream "    (void)id;~%")
-      (format stream "    return 0;  /* all generated expressions are ground */~%")
+      (format stream "    switch (id) {~%")
+      (loop for (ast . value) in entries
+            for expr in exprs
+            for id from 1
+            do (format stream "        case SMC_EXPR_~A: return ~D;~%"
+                       (string-upcase (c-identifier expr))
+                       (expression-arity ast)))
+      (format stream "        default: return 0;~%")
+      (format stream "    }~%")
       (format stream "}~%~%")
 
       (format stream "const char *smc_expr_source(smc_expr_id_t id) {~%")
