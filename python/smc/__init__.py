@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 __all__ = [
+    "abi_version",
+    "runtime_kind",
     "eval",
     "eval_float",
     "eval_int",
@@ -171,6 +173,12 @@ class _LibSMC:
         self._lib.smc_generate_c_source_with.restype = c_int
         self._lib.smc_generate_c_source_with.argtypes = [ctypes.c_void_p, c_char_p]
 
+        # Introspection
+        self._lib.smc_abi_version.restype = c_int
+        self._lib.smc_abi_version.argtypes = []
+        self._lib.smc_runtime_kind.restype = c_char_p
+        self._lib.smc_runtime_kind.argtypes = []
+
         # Error handling
         self._lib.smc_error_string.restype = c_char_p
         self._lib.smc_error_string.argtypes = [c_int]
@@ -258,6 +266,21 @@ class _LibSMC:
 
 
 # Module-level helpers for the global context.
+
+
+def abi_version() -> int:
+    """Return the runtime ABI version."""
+    lib = _LibSMC()
+    return int(lib._lib.smc_abi_version())
+
+
+def runtime_kind() -> str:
+    """Return a short string identifying the runtime kind ('stub' or 'sbcl')."""
+    lib = _LibSMC()
+    raw = lib._lib.smc_runtime_kind()
+    if raw is None:
+        return "unknown"
+    return raw.decode("utf-8", errors="replace")
 
 
 def eval(expr: str) -> float:

@@ -15,6 +15,11 @@
 #include <stddef.h>
 #include <string.h>
 
+#define SMC_OK             0
+#define SMC_ERR_NOT_IMPL  -4
+#define SMC_ERR_ARITY     -8
+#define SMC_ERR_NOT_FOUND -9
+
 /* -------------------------------------------------------------------------- */
 /* Tier 2 generated-code calls                                                */
 /* -------------------------------------------------------------------------- */

@@ -27,6 +27,11 @@
 #define SMC_ERR_INIT      -1
 #define SMC_ERR_NOT_IMPL  -4
 #define SMC_ERR_INVALID   -6
+#define SMC_ERR_ABI       -7
+#define SMC_ERR_ARITY     -8
+#define SMC_ERR_NOT_FOUND -9
+#define SMC_ERR_THREAD    -10
+#define SMC_ERR_SHUTDOWN  -11
 
 /* -------------------------------------------------------------------------- */
 /* Error state                                                                */
@@ -245,6 +250,14 @@ int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path) {
     return SMC_ERR_NOT_IMPL;
 }
 
+int smc_abi_version(void) {
+    return SMC_ABI_VERSION;
+}
+
+const char *smc_runtime_kind(void) {
+    return "sbcl";
+}
+
 int smc_expr_count(void) {
     return 0;
 }
@@ -265,6 +278,11 @@ const char *smc_error_string(int code) {
         case SMC_ERR_INIT:      return "initialization error";
         case SMC_ERR_NOT_IMPL:  return "not implemented";
         case SMC_ERR_INVALID:   return "invalid argument";
+        case SMC_ERR_ABI:       return "ABI version mismatch";
+        case SMC_ERR_ARITY:     return "wrong arity";
+        case SMC_ERR_NOT_FOUND: return "expression not found";
+        case SMC_ERR_THREAD:    return "thread-safety violation";
+        case SMC_ERR_SHUTDOWN:  return "library shut down";
         default:                return "unknown error";
     }
 }
