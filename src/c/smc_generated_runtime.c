@@ -24,6 +24,10 @@
 /* Tier 2 generated-code calls                                                */
 /* -------------------------------------------------------------------------- */
 
+/* Global statistics shared with the runtime.  The generated dispatch table
+   increments these counters directly. */
+smc_stats_t smc_global_stats = {0, 0, 0, 0, 0, 0, 0, 0};
+
 __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
                                           const double *args, size_t argc,
                                           double *out) {
@@ -31,6 +35,8 @@ __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
     (void)args;
     (void)argc;
     (void)out;
+    smc_global_stats.total_calls++;
+    smc_global_stats.fallback_evals++;
     return SMC_ERR_NOT_IMPL;
 }
 
@@ -41,6 +47,8 @@ __attribute__((weak)) int smc_call_float(smc_expr_id_t expr_id,
     (void)args;
     (void)argc;
     (void)out;
+    smc_global_stats.total_calls++;
+    smc_global_stats.fallback_evals++;
     return SMC_ERR_NOT_IMPL;
 }
 
@@ -51,6 +59,8 @@ __attribute__((weak)) int smc_call_int(smc_expr_id_t expr_id,
     (void)args;
     (void)argc;
     (void)out;
+    smc_global_stats.total_calls++;
+    smc_global_stats.fallback_evals++;
     return SMC_ERR_NOT_IMPL;
 }
 
@@ -59,7 +69,7 @@ __attribute__((weak)) int smc_call_int(smc_expr_id_t expr_id,
 /* -------------------------------------------------------------------------- */
 
 __attribute__((weak)) int smc_generated_abi_version(void) {
-    return 1;
+    return 0;
 }
 
 __attribute__((weak)) int smc_expr_count(void) {

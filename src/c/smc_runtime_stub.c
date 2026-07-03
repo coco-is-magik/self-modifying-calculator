@@ -41,8 +41,25 @@
 
 static smc_error_t g_last_error = {0, ""};
 
+/* -------------------------------------------------------------------------- */
+/* Statistics counters                                                        */
+/* -------------------------------------------------------------------------- */
+
+smc_stats_t smc_global_stats = {0, 0, 0, 0, 0, 0, 0, 0};
+
+static smc_stats_t *g_stats = &smc_global_stats;
+
+static void smc_stats_record_error(int code) {
+    g_stats->last_error_code = code;
+}
+
+static void smc_stats_increment(uint64_t *counter) {
+    (*counter)++;
+}
+
 static void smc_set_error(int code, const char *msg) {
     g_last_error.code = code;
+    smc_stats_record_error(code);
     if (msg) {
         strncpy(g_last_error.message, msg, sizeof(g_last_error.message) - 1);
         g_last_error.message[sizeof(g_last_error.message) - 1] = '\0';
@@ -55,6 +72,7 @@ static void smc_set_errorf(int code, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
     g_last_error.code = code;
+    smc_stats_record_error(code);
     vsnprintf(g_last_error.message, sizeof(g_last_error.message), fmt, ap);
     g_last_error.message[sizeof(g_last_error.message) - 1] = '\0';
     va_end(ap);
@@ -460,10 +478,12 @@ static int smc_eval_double_impl(smc_context_t *ctx, const char *expr, double *ou
     smc_parser_init(&p, expr);
     int rc = smc_parse_expression(&p, ctx, out);
     if (rc != SMC_OK) {
+        smc_stats_increment(&g_stats->parse_errors);
         return rc;
     }
     if (smc_parser_peek(&p) >= 0) {
         smc_set_error(SMC_ERR_PARSE, "trailing characters in expression");
+        smc_stats_increment(&g_stats->parse_errors);
         return SMC_ERR_PARSE;
     }
     return SMC_OK;
@@ -526,6 +546,60 @@ int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out) {
  * companion file provides weak fallbacks that return SMC_ERR_NOT_IMPL when no
  * generated table is linked.
  */
+
+__attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
+                    const double *args, size_t argc,
+                    double *out) {
+    (void)expr_id;
+    (void)args;
+    (void)argc;
+    (void)out;
+    smc_stats_increment(&g_stats->total_calls);
+    smc_stats_increment(&g_stats->fallback_evals);
+    smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
+    return SMC_ERR_NOT_IMPL;
+}
+
+__attribute__((weak)) int smc_call_float(smc_expr_id_t expr_id,
+                   const float *args, size_t argc,
+                   float *out) {
+    (void)expr_id;
+    (void)args;
+    (void)argc;
+    (void)out;
+    smc_stats_increment(&g_stats->total_calls);
+    smc_stats_increment(&g_stats->fallback_evals);
+    smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
+    return SMC_ERR_NOT_IMPL;
+}
+
+__attribute__((weak)) int smc_call_int(smc_expr_id_t expr_id,
+                 const int64_t *args, size_t argc,
+                 int64_t *out) {
+    (void)expr_id;
+    (void)args;
+    (void)argc;
+    (void)out;
+    smc_stats_increment(&g_stats->total_calls);
+    smc_stats_increment(&g_stats->fallback_evals);
+    smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
+    return SMC_ERR_NOT_IMPL;
+}
+
+/* Weak metadata fallbacks.  A generated dispatch table overrides these. */
+__attribute__((weak)) int smc_expr_count(void) {
+    return 0;
+}
+
+__attribute__((weak)) size_t smc_expr_arity(smc_expr_id_t id) {
+    (void)id;
+    return 0;
+}
+
+__attribute__((weak)) const char *smc_expr_source(smc_expr_id_t id) {
+    (void)id;
+    return NULL;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Variables (stub: not implemented in Milestone 1)                             */
@@ -662,4 +736,22 @@ const smc_error_t *smc_last_error(void) {
 const smc_error_t *smc_last_error_with(smc_context_t *ctx) {
     (void)ctx;
     return (const smc_error_t *)&g_last_error;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Observability                                                              */
+/* -------------------------------------------------------------------------- */
+
+int smc_get_stats(smc_stats_t *out) {
+    if (!out) {
+        smc_set_error(SMC_ERR_INVALID, "null argument");
+        return SMC_ERR_INVALID;
+    }
+    *out = *g_stats;
+    return SMC_OK;
+}
+
+int smc_reset_stats(void) {
+    memset(g_stats, 0, sizeof(*g_stats));
+    return SMC_OK;
 }

@@ -130,6 +130,20 @@ struct smc_error {
 };
 typedef struct smc_error smc_error_t;
 
+/* Observability counters.  Layout is frozen across ABI v1.
+ * All counters are monotonically increasing unsigned values. */
+struct smc_stats {
+    uint64_t total_calls;      /* total smc_call_* invocations */
+    uint64_t generated_hits;   /* calls that resolved to a generated expression */
+    uint64_t fallback_evals;   /* calls that fell back to Tier 1 evaluation */
+    uint64_t invalid_ids;      /* calls with an unknown expression ID */
+    uint64_t arity_errors;     /* calls with a wrong argument count */
+    uint64_t invalid_calls;    /* calls with invalid arguments (e.g. null out) */
+    uint64_t parse_errors;     /* Tier 1 parse failures */
+    int      last_error_code;  /* code of the most recently recorded error */
+};
+typedef struct smc_stats smc_stats_t;
+
 /* -------------------------------------------------------------------------- */
 /* Introspection                                                              */
 /* -------------------------------------------------------------------------- */
@@ -306,6 +320,19 @@ const smc_error_t *smc_last_error(void);
 /* Return the last error recorded in an explicit context.  The pointer is valid
  * until the next call that modifies the same context's error slot. */
 const smc_error_t *smc_last_error_with(smc_context_t *ctx);
+
+/* -------------------------------------------------------------------------- */
+/* Observability                                                              */
+/* -------------------------------------------------------------------------- */
+
+/* Fill OUT with a snapshot of the current global statistics counters.
+ * OUT must be non-NULL.  The counters are monotonically increasing for the
+ * lifetime of the library (reset only by smc_reset_stats()). */
+int smc_get_stats(smc_stats_t *out);
+
+/* Reset all global statistics counters to zero.  This is not thread-safe and
+ * should not be called concurrently with smc_call_* or smc_eval_*. */
+int smc_reset_stats(void);
 
 #ifdef __cplusplus
 }

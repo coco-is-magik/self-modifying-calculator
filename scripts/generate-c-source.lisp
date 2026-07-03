@@ -308,7 +308,12 @@
       (format stream "int smc_call_double(smc_expr_id_t expr_id,~%")
       (format stream "                    const double *args, size_t argc,~%")
       (format stream "                    double *out) {~%")
-      (format stream "    if (out == NULL) return SMC_ERR_INVALID;~%")
+      (format stream "    extern smc_stats_t smc_global_stats;~%")
+      (format stream "    smc_global_stats.total_calls++;~%")
+      (format stream "    if (out == NULL) {~%")
+      (format stream "        smc_global_stats.invalid_calls++;~%")
+      (format stream "        return SMC_ERR_INVALID;~%")
+      (format stream "    }~%")
       (format stream "    switch (expr_id) {~%")
       (loop for (ast . value) in entries
             for expr in exprs
@@ -316,10 +321,16 @@
             do (let ((arity (expression-arity ast)))
                  (format stream "        case SMC_EXPR_~A:~%"
                          (string-upcase id))
-                 (format stream "            if (argc != ~D) return SMC_ERR_ARITY;~%" arity)
+                 (format stream "            if (argc != ~D) {~%" arity)
+                 (format stream "                smc_global_stats.arity_errors++;~%")
+                 (format stream "                return SMC_ERR_ARITY;~%")
+                 (format stream "            }~%")
+                 (format stream "            smc_global_stats.generated_hits++;~%")
                  (format stream "            return smc_expr_~A(args, out);~%"
                          id)))
-      (format stream "        default: return SMC_ERR_NOT_FOUND;~%")
+      (format stream "        default:~%")
+      (format stream "            smc_global_stats.invalid_ids++;~%")
+      (format stream "            return SMC_ERR_NOT_FOUND;~%")
       (format stream "    }~%")
       (format stream "}~%~%")
 

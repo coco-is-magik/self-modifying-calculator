@@ -20,7 +20,6 @@ set(CMAKE_C_EXTENSIONS OFF)
 # ---------------------------------------------------------------------------
 set(SMC_RUNTIME_SOURCES
     src/c/smc_runtime_stub.c
-    src/c/smc_generated_runtime.c
 )
 
 if(SMC_BUILD_STATIC)
@@ -122,23 +121,39 @@ if(SMC_BUILD_TESTS)
     add_executable(test_parser tests/c/test_parser.c)
     add_executable(test_context_isolation tests/c/test_context_isolation.c)
     add_executable(test_metadata tests/c/test_metadata.c)
+    add_executable(test_stats tests/c/test_stats.c)
 
     if(SMC_BUILD_STATIC)
         target_link_libraries(test_lifecycle PRIVATE smc_static)
         target_link_libraries(test_parser PRIVATE smc_static)
         target_link_libraries(test_context_isolation PRIVATE smc_static)
         target_link_libraries(test_metadata PRIVATE smc_static)
+        target_link_libraries(test_stats PRIVATE smc_static)
     else()
         target_link_libraries(test_lifecycle PRIVATE smc_shared)
         target_link_libraries(test_parser PRIVATE smc_shared)
         target_link_libraries(test_context_isolation PRIVATE smc_shared)
         target_link_libraries(test_metadata PRIVATE smc_shared)
+        target_link_libraries(test_stats PRIVATE smc_shared)
+    endif()
+
+    # test_metadata and test_stats use Tier 2 metadata helpers; link the
+    # generated table when available so the symbols resolve.
+    if(SMC_GENERATED_SOURCE)
+        if(SMC_BUILD_STATIC)
+            target_link_libraries(test_metadata PRIVATE smc_generated_static)
+            target_link_libraries(test_stats PRIVATE smc_generated_static)
+        else()
+            target_link_libraries(test_metadata PRIVATE smc_generated_shared)
+            target_link_libraries(test_stats PRIVATE smc_generated_shared)
+        endif()
     endif()
 
     add_test(NAME test_lifecycle COMMAND test_lifecycle)
     add_test(NAME test_parser COMMAND test_parser)
     add_test(NAME test_context_isolation COMMAND test_context_isolation)
     add_test(NAME test_metadata COMMAND test_metadata)
+    add_test(NAME test_stats COMMAND test_stats)
 
     add_executable(test_stub_runtime tests/c/test_stub_runtime.c)
     if(SMC_BUILD_STATIC)
