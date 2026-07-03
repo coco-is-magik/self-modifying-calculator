@@ -39,7 +39,10 @@ __all__ = [
     "cache_load",
     "cache_clear",
     "generate_c_source",
+    "get_stats",
+    "reset_stats",
     "SMCError",
+    "SMCStats",
 ]
 
 
@@ -186,6 +189,12 @@ class _LibSMC:
         self._lib.smc_last_error.argtypes = []
         self._lib.smc_last_error_with.restype = ctypes.POINTER(_smc_error_t)
         self._lib.smc_last_error_with.argtypes = [ctypes.c_void_p]
+
+        # Observability
+        self._lib.smc_get_stats.restype = c_int
+        self._lib.smc_get_stats.argtypes = [ctypes.POINTER(_smc_stats_t)]
+        self._lib.smc_reset_stats.restype = c_int
+        self._lib.smc_reset_stats.argtypes = []
 
         # Initialize the library once at module load time.
         rc = self._lib.smc_init()
@@ -498,3 +507,74 @@ class Context:
             )
         )
         return out.value
+
+
+class SMCStats:
+    """Snapshot of SMC observability counters.
+
+    Mirrors the C ``smc_stats_t`` struct layout.
+    """
+
+    _fields_ = [
+        ("total_calls", int),
+        ("generated_hits", int),
+        ("fallback_evals", int),
+        ("invalid_ids", int),
+        ("arity_errors", int),
+        ("invalid_calls", int),
+        ("parse_errors", int),
+        ("last_error_code", int),
+    ]
+
+    def __init__(self, raw: "_smc_stats_t") -> None:
+        self.total_calls = raw.total_calls
+        self.generated_hits = raw.generated_hits
+        self.fallback_evals = raw.fallback_evals
+        self.invalid_ids = raw.invalid_ids
+        self.arity_errors = raw.arity_errors
+        self.invalid_calls = raw.invalid_calls
+        self.parse_errors = raw.parse_errors
+        self.last_error_code = raw.last_error_code
+
+    def __repr__(self) -> str:
+        return (
+            f"SMCStats(total_calls={self.total_calls}, "
+            f"generated_hits={self.generated_hits}, "
+            f"fallback_evals={self.fallback_evals}, "
+            f"invalid_ids={self.invalid_ids}, "
+            f"arity_errors={self.arity_errors}, "
+            f"invalid_calls={self.invalid_calls}, "
+            f"parse_errors={self.parse_errors}, "
+            f"last_error_code={self.last_error_code})"
+        )
+
+
+class _smc_stats_t(ctypes.Structure):
+    _fields_ = [
+        ("total_calls", c_uint64),
+        ("generated_hits", c_uint64),
+        ("fallback_evals", c_uint64),
+        ("invalid_ids", c_uint64),
+        ("arity_errors", c_uint64),
+        ("invalid_calls", c_uint64),
+        ("parse_errors", c_uint64),
+        ("last_error_code", c_int),
+    ]
+
+
+def get_stats() -> SMCStats:
+    """Return a snapshot of the global statistics counters."""
+    lib = _LibSMC()
+    raw = _smc_stats_t()
+    lib._check(lib._lib.smc_get_stats(ctypes.byref(raw)))
+    return SMCStats(raw)
+
+
+def reset_stats() -> None:
+    """Reset all global statistics counters to zero.
+
+    This is not thread-safe and should not be called concurrently with
+    ``smc.call`` or ``smc.eval``.
+    """
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_reset_stats())

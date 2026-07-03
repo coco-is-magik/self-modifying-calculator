@@ -25,8 +25,10 @@
 /* -------------------------------------------------------------------------- */
 
 /* Global statistics shared with the runtime.  The generated dispatch table
-   increments these counters directly. */
-smc_stats_t smc_global_stats = {0, 0, 0, 0, 0, 0, 0, 0};
+   increments these counters directly.
+   Defined in smc_runtime_stub.c; declared extern here so both files can
+   reference the same object without a duplicate-symbol error at link time. */
+extern smc_stats_t smc_global_stats;
 
 __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
                                           const double *args, size_t argc,

@@ -295,3 +295,23 @@ const smc_error_t *smc_last_error_with(smc_context_t *ctx) {
     (void)ctx;
     return (const smc_error_t *)&g_last_error;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Observability                                                              */
+/* -------------------------------------------------------------------------- */
+
+static smc_stats_t g_sbcl_stats = {0, 0, 0, 0, 0, 0, 0, 0};
+
+int smc_get_stats(smc_stats_t *out) {
+    if (!out) {
+        smc_set_error(SMC_ERR_INVALID, "null argument");
+        return SMC_ERR_INVALID;
+    }
+    *out = g_sbcl_stats;
+    return SMC_OK;
+}
+
+int smc_reset_stats(void) {
+    memset(&g_sbcl_stats, 0, sizeof(g_sbcl_stats));
+    return SMC_OK;
+}
