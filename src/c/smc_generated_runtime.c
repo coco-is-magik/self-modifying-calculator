@@ -58,6 +58,10 @@ __attribute__((weak)) int smc_call_int(smc_expr_id_t expr_id,
 /* Expression metadata                                                        */
 /* -------------------------------------------------------------------------- */
 
+__attribute__((weak)) int smc_generated_abi_version(void) {
+    return 1;
+}
+
 __attribute__((weak)) int smc_expr_count(void) {
     return 0;
 }

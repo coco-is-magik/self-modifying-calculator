@@ -143,9 +143,25 @@ int smc_init(void) {
     if (g_initialized) {
         return SMC_OK;
     }
+
+    /* If a generated dispatch table is linked, verify ABI compatibility.
+       The generated table provides smc_generated_abi_version(); the weak
+       fallback in smc_generated_runtime.c returns 0 (no table). */
+    extern int smc_generated_abi_version(void) __attribute__((weak));
+    if (smc_generated_abi_version) {
+        int generated_abi = smc_generated_abi_version();
+        if (generated_abi != 0 && generated_abi != SMC_ABI_VERSION) {
+            smc_set_errorf(SMC_ERR_ABI,
+                           "generated ABI version %d does not match runtime ABI version %d",
+                           generated_abi, SMC_ABI_VERSION);
+            return SMC_ERR_ABI;
+        }
+    }
+
     g_initialized = 1;
     g_global_context.level = 1;
     g_global_context.initialized = 1;
+    smc_variable_table_init(&g_global_context.variables);
     smc_set_error(SMC_OK, NULL);
     return SMC_OK;
 }

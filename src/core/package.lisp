@@ -75,9 +75,9 @@
    :enable-operator-specialization
    ;; Test runner
    :run-all-tests
-   ;; Unified optimization pipeline
-   :configure-optimization
-   :*pipeline-level*
-   :*pipeline-specialization-threshold*
-   :*pipeline-source-rewrite-threshold*
-   :*pipeline-source-rewrite-interval*))
+    ;; Unified optimization pipeline
+    :configure-optimization
+    :*pipeline-level*
+    :*pipeline-specialization-threshold*
+    :*pipeline-source-rewrite-threshold*
+    :*pipeline-source-rewrite-interval*))

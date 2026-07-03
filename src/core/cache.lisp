@@ -60,23 +60,22 @@
   "Optional function called after a successful cache-set. Receives (cache key value).")
 
 (defun cache-set (cache key value)
-  "Store VALUE for KEY in CACHE. Only ground expressions are cached.
-   KEY is interned to ensure EQ-based cache lookups work correctly.
+  "Store VALUE for KEY in CACHE. Both ground and non-ground expressions are
+   cached. KEY is interned to ensure EQ-based cache lookups work correctly.
    If the cache has a positive MAX-SIZE and is full, evict the LRU entry.
    Calls `*cache-set-hook*' after a successful set."
   (let ((key (intern-ast key)))
-    (when (ast-ground-p key)
-      (let ((max-size (cache-max-size cache)))
-        (when (and (> max-size 0)
-                   (>= (cache-size cache) max-size)
-                   (not (cache-contains-p cache key)))
-          (cache-evict-lru cache))
-        (setf (gethash key (cache-table cache)) value)
-        (cache-touch cache key)
-        (setf (cache-compiled-lookup-dirty cache) t)
-        (when *cache-set-hook*
-          (funcall *cache-set-hook* cache key value))
-        value))))
+    (let ((max-size (cache-max-size cache)))
+      (when (and (> max-size 0)
+                 (>= (cache-size cache) max-size)
+                 (not (cache-contains-p cache key)))
+        (cache-evict-lru cache))
+      (setf (gethash key (cache-table cache)) value)
+      (cache-touch cache key)
+      (setf (cache-compiled-lookup-dirty cache) t)
+      (when *cache-set-hook*
+        (funcall *cache-set-hook* cache key value))
+      value)))
 
 (defun cache-contains-p (cache key)
   "Return true if CACHE contains KEY."
