@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 - Tier 1 variable binding in the stub runtime: `smc_set_variable_double*`, `smc_clear_variables*` now work in `src/c/smc_runtime_stub.c`.
 - Tier 2 argumentized expression support in `scripts/generate-c-source.lisp`: generated C code can now substitute `args[i]` for variable nodes and emits correct arity metadata.
 - Generated dispatch table now returns `SMC_ERR_ARITY` for wrong argument counts and `SMC_ERR_NOT_FOUND` for unknown expression IDs.
+- Generator hardening: deterministic canonical sorting by `(ast-string . arity)`, stable cache hash, unique C identifiers, ABI/version metadata comments, and a runtime ABI-version check symbol (`smc_generated_abi_version`).
+- Cache now stores non-ground expressions as well as ground expressions, enabling argumentized code generation.
+- New Lisp generator tests in `tests/lisp/test-generator.lisp` verify determinism and argumentized expression emission.
 - Documentation pointers updated in `README.md`, `docs/embedding-roadmap.md`, `docs/integration-guide.md`, and `docs/KNOWN-ISSUES.md` to reference the new C API maturity plan and ABI contract.
 - Function call syntax in the string parser: `sin(x)`, `dot(a,b)`, `vec3(x,y,z)`, etc.
 - Parser cache eviction with configurable `*parse-cache-max-size*` (default 1000).
