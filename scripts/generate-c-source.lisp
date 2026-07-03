@@ -308,6 +308,7 @@
       (format stream "int smc_call_double(smc_expr_id_t expr_id,~%")
       (format stream "                    const double *args, size_t argc,~%")
       (format stream "                    double *out) {~%")
+      (format stream "    if (out == NULL) return SMC_ERR_INVALID;~%")
       (format stream "    switch (expr_id) {~%")
       (loop for (ast . value) in entries
             for expr in exprs
