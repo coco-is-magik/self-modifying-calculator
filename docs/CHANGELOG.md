@@ -16,6 +16,8 @@ All notable changes to this project will be documented in this file.
 - Generator hardening: deterministic canonical sorting by `(ast-string . arity)`, stable cache hash, unique C identifiers, ABI/version metadata comments, and a runtime ABI-version check symbol (`smc_generated_abi_version`).
 - Cache now stores non-ground expressions as well as ground expressions, enabling argumentized code generation.
 - New Lisp generator tests in `tests/lisp/test-generator.lisp` verify determinism and argumentized expression emission.
+- Phase 4 C-first correctness suite: new tests for lifecycle, parser, context isolation, generated dispatch, static/shared linking, and metadata.
+- Generated `smc_call_double` now returns `SMC_ERR_INVALID` for null output pointers.
 - Documentation pointers updated in `README.md`, `docs/embedding-roadmap.md`, `docs/integration-guide.md`, and `docs/KNOWN-ISSUES.md` to reference the new C API maturity plan and ABI contract.
 - Function call syntax in the string parser: `sin(x)`, `dot(a,b)`, `vec3(x,y,z)`, etc.
 - Parser cache eviction with configurable `*parse-cache-max-size*` (default 1000).
