@@ -34,3 +34,7 @@ python/dist/
 # Generated C source (kept out of repo; produced by scripts/generate-c-source.lisp)
 smc_generated.c
 smc_generated.h
+
+# Project files
+.cline/
+.agents/
