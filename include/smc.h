@@ -90,6 +90,24 @@ extern "C" {
 #endif
 
 /* -------------------------------------------------------------------------- */
+/* Symbol visibility                                                          */
+/* -------------------------------------------------------------------------- */
+
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  if defined(SMC_BUILD_SHARED)
+#    define SMC_API __declspec(dllexport)
+#  elif defined(SMC_USE_SHARED)
+#    define SMC_API __declspec(dllimport)
+#  else
+#    define SMC_API
+#  endif
+#elif defined(__GNUC__) || defined(__clang__)
+#  define SMC_API __attribute__((visibility("default")))
+#else
+#  define SMC_API
+#endif
+
+/* -------------------------------------------------------------------------- */
 /* ABI version                                                                */
 /* -------------------------------------------------------------------------- */
 

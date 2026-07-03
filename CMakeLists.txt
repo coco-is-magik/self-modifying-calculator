@@ -10,10 +10,24 @@ option(SMC_BUILD_EXAMPLES "Build C examples" ON)
 option(SMC_BUILD_TESTS "Build C acceptance tests" ON)
 option(SMC_BUILD_BENCHMARKS "Build C benchmarks" ON)
 option(SMC_GENERATED_SOURCE "Path to a generated smc_generated.c dispatch table" "")
+option(SMC_THREAD_SAFE "Enable internal locking for the global context" OFF)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+
+# ---------------------------------------------------------------------------
+# Symbol visibility
+# ---------------------------------------------------------------------------
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+
+# ---------------------------------------------------------------------------
+# Compile definitions
+# ---------------------------------------------------------------------------
+if(SMC_THREAD_SAFE)
+    add_definitions(-DSMC_THREAD_SAFE=1)
+endif()
 
 # ---------------------------------------------------------------------------
 # Runtime library (Tier 1 + weak Tier 2 fallbacks)
@@ -24,7 +38,10 @@ set(SMC_RUNTIME_SOURCES
 
 if(SMC_BUILD_STATIC)
     add_library(smc_static STATIC ${SMC_RUNTIME_SOURCES})
-    set_target_properties(smc_static PROPERTIES OUTPUT_NAME smc)
+    set_target_properties(smc_static PROPERTIES
+        OUTPUT_NAME smc
+        C_VISIBILITY_PRESET hidden
+    )
     target_include_directories(smc_static PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
@@ -41,7 +58,12 @@ if(SMC_BUILD_SHARED)
         list(APPEND SMC_SHARED_SOURCES ${SMC_GENERATED_SOURCE})
     endif()
     add_library(smc_shared SHARED ${SMC_SHARED_SOURCES})
-    set_target_properties(smc_shared PROPERTIES OUTPUT_NAME smc)
+    set_target_properties(smc_shared PROPERTIES
+        OUTPUT_NAME smc
+        VERSION ${PROJECT_VERSION}
+        SOVERSION 1
+        C_VISIBILITY_PRESET hidden
+    )
     target_include_directories(smc_shared PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
@@ -60,7 +82,10 @@ if(SMC_GENERATED_SOURCE)
 
     if(SMC_BUILD_STATIC)
         add_library(smc_generated_static STATIC ${SMC_GENERATED_SOURCE})
-        set_target_properties(smc_generated_static PROPERTIES OUTPUT_NAME smc_generated)
+        set_target_properties(smc_generated_static PROPERTIES
+            OUTPUT_NAME smc_generated
+            C_VISIBILITY_PRESET hidden
+        )
         target_include_directories(smc_generated_static PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>
@@ -70,7 +95,12 @@ if(SMC_GENERATED_SOURCE)
 
     if(SMC_BUILD_SHARED)
         add_library(smc_generated_shared SHARED ${SMC_GENERATED_SOURCE})
-        set_target_properties(smc_generated_shared PROPERTIES OUTPUT_NAME smc_generated)
+        set_target_properties(smc_generated_shared PROPERTIES
+            OUTPUT_NAME smc_generated
+            VERSION ${PROJECT_VERSION}
+            SOVERSION 1
+            C_VISIBILITY_PRESET hidden
+        )
         target_include_directories(smc_generated_shared PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
             $<INSTALL_INTERFACE:include>
@@ -185,6 +215,20 @@ endif()
 if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)
     add_executable(benchmark_generated tests/benchmarks/benchmark_generated.c)
     smc_link_executable(benchmark_generated)
+endif()
+
+# ---------------------------------------------------------------------------
+# pkg-config
+# ---------------------------------------------------------------------------
+if(NOT WIN32)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/smc.pc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/smc.pc"
+        @ONLY
+    )
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/smc.pc"
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+    )
 endif()
 
 # ---------------------------------------------------------------------------
