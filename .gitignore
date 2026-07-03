@@ -37,4 +37,5 @@ smc_generated.h
 
 # Project files
 .cline/
+.clineignore
 .agents/
