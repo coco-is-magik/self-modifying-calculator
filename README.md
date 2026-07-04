@@ -263,6 +263,17 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 examples/python/renderer_hotpath
 PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/python/test_smc.py
 ```
 
+**Regression tests:**
+- `ctest --test-dir build --output-on-failure` runs C acceptance tests, including:
+  - `test_symbol_visibility` — verifies the stable C ABI symbols are exported from `libsmc`.
+  - `test_pedantic_compile` — verifies `include/smc.h` and the C runtime files compile with `-Wall -Wextra -Werror -pedantic -std=c99`.
+- `./scripts/run-tests.sh` runs Lisp tests, including:
+  - Shell-script syntax checks for every `scripts/*.sh`.
+  - A check that `scripts/generate-c-source.lisp` uses only exported `smc:` symbols (no `smc::` internal access).
+- `PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/python/test_smc.py` runs Python tests, including:
+  - Importability of every public name and every `ctypes` type used by the binding.
+  - Successful module load when a generated dispatch table is present.
+
 **Benchmarks:**
 ```bash
 # C
