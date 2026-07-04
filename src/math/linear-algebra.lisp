@@ -11,9 +11,17 @@
   "Construct a 3D vector from numeric components."
   (list x y z))
 
-(defun vec3-x (v) (first v))
-(defun vec3-y (v) (second v))
-(defun vec3-z (v) (third v))
+(defun vec3-x (v)
+  "Return the X component of a vec3."
+  (first v))
+
+(defun vec3-y (v)
+  "Return the Y component of a vec3."
+  (second v))
+
+(defun vec3-z (v)
+  "Return the Z component of a vec3."
+  (third v))
 
 (defun dot-product (v1 v2)
   "Compute the dot product of two 3D vectors."

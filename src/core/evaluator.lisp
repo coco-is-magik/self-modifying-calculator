@@ -27,6 +27,10 @@
   (or (gethash op *operator-table*)
       (error "Unknown operator: ~A" op)))
 
+(defun eval-args-then-apply (op args eval-fn)
+  "Evaluate all arguments in ARGS using EVAL-FN and apply the operator implementation for OP."
+  (apply (operator-function op) (mapcar eval-fn args)))
+
 ;;; Variable environment
 
 (defparameter *variable-table* (make-hash-table :test 'eq)
@@ -109,12 +113,6 @@
            (args (cdr node)))
        (apply (operator-function op) (mapcar #'evaluate-node args))))
     (t (error "Invalid AST node: ~A" node))))
-
-;;; Helper: evaluate with args already evaluated (for operators)
-
-(defun eval-args-then-apply (op args eval-fn)
-  "Evaluate all arguments and apply the operator implementation."
-  (apply (operator-function op) (mapcar eval-fn args)))
 
 ;;; Default operators: arithmetic
 

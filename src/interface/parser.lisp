@@ -63,12 +63,15 @@
 (defstruct token-stream tokens)
 
 (defun peek-token (stream)
+  "Return the next token in STREAM without consuming it."
   (car (token-stream-tokens stream)))
 
 (defun next-token (stream)
+  "Consume and return the next token from STREAM."
   (pop (token-stream-tokens stream)))
 
 (defun expect-token (stream token)
+  "Consume the next token from STREAM and signal an error if it is not TOKEN."
   (let ((actual (next-token stream)))
     (unless (eq actual token)
       (error "Expected token ~A but found ~A" token actual))))
@@ -80,6 +83,7 @@
   (parse-addition stream))
 
 (defun parse-addition (stream)
+  "Parse left-associative addition and subtraction from STREAM."
   (let ((left (parse-multiplication stream)))
     (loop while (member (peek-token stream) '(:+ :-)) do
       (let ((op (next-token stream)))
@@ -87,6 +91,7 @@
     left))
 
 (defun parse-multiplication (stream)
+  "Parse left-associative multiplication and division from STREAM."
   (let ((left (parse-power stream)))
     (loop while (member (peek-token stream) '(:* :/)) do
       (let ((op (next-token stream)))
@@ -94,6 +99,7 @@
     left))
 
 (defun parse-power (stream)
+  "Parse right-associative exponentiation from STREAM."
   (let ((left (parse-unary stream)))
     (loop while (eq (peek-token stream) :^) do
       (next-token stream)
@@ -101,6 +107,7 @@
     left))
 
 (defun parse-unary (stream)
+  "Parse unary plus and minus from STREAM."
   (cond
     ((eq (peek-token stream) :-)
      (next-token stream)
@@ -124,6 +131,7 @@
           (t (error "Expected comma or right paren, got ~A" next)))))))
 
 (defun parse-primary (stream)
+  "Parse a primary expression (number, variable, parenthesized expr, or function call) from STREAM."
   (let ((token (peek-token stream)))
     (cond
       ((null token) (error "Unexpected end of input"))

@@ -11,10 +11,10 @@
   (compiled-lookup nil)         ; compiled (lambda (node) ...) or nil
   (compiled-lookup-dirty t)     ; t when table has changed since last compile
   (compile-threshold 20)        ; only compile when cache has >= this many entries
-  (last-compiled-size 0)       ; cache size at last compile; recompile when doubled
-  (max-size 0 :type integer)      ; 0 means unlimited
-  (access-counter 0 :type integer)  ; monotonic access counter for LRU eviction
-  (last-access (make-hash-table :test 'eq) :type hash-table))  ; key -> access count
+  (last-compiled-size 0)        ; cache size at last compile; recompile when doubled
+  (max-size 0 :type integer)    ; 0 means unlimited
+  (access-counter 0 :type integer) ; monotonic access counter for LRU eviction
+  (last-access (make-hash-table :test 'eq) :type hash-table)) ; key -> access count
 
 (defun make-cache (&optional (max-size 0))
   "Create a fresh, empty cache. If MAX-SIZE is positive, the cache will evict

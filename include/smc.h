@@ -168,14 +168,14 @@ typedef struct smc_stats smc_stats_t;
 
 /* Return the compile-time ABI version of the runtime library.  Safe to call
  * before smc_init(). */
-int smc_abi_version(void);
+SMC_API int smc_abi_version(void);
 
 /* Return a short string identifying the runtime kind:
  *   "stub"    - standalone C runtime (no SBCL dependency)
  *   "sbcl"    - SBCL-backed runtime (placeholder in v1)
  *   "unknown" - unrecognized runtime
  * Safe to call before smc_init(). */
-const char *smc_runtime_kind(void);
+SMC_API const char *smc_runtime_kind(void);
 
 /* -------------------------------------------------------------------------- */
 /* Lifecycle                                                                  */
@@ -189,13 +189,13 @@ const char *smc_runtime_kind(void);
  *
  * Returns SMC_OK on success, SMC_ERR_INIT on failure, or SMC_ERR_ABI if the
  * linked generated dispatch table is incompatible with this runtime. */
-int smc_init(void);
+SMC_API int smc_init(void);
 
 /* One-time library shutdown. Releases global resources.
  *
  * Thread safety: not thread-safe.  After this returns, only smc_abi_version(),
  * smc_runtime_kind(), and smc_error_string() remain safe to call. */
-int smc_shutdown(void);
+SMC_API int smc_shutdown(void);
 
 /* Create an isolated context with the given optimization level (1..3).
  *
@@ -204,10 +204,10 @@ int smc_shutdown(void);
  *
  * Thread safety: the returned context is not thread-safe unless external
  * synchronization is provided.  Each thread should use its own context. */
-smc_context_t *smc_context_create(int level);
+SMC_API smc_context_t *smc_context_create(int level);
 
 /* Destroy a context created with smc_context_create().  Passing NULL is a no-op. */
-void smc_context_destroy(smc_context_t *ctx);
+SMC_API void smc_context_destroy(smc_context_t *ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Global context convenience API                                             */
@@ -216,11 +216,11 @@ void smc_context_destroy(smc_context_t *ctx);
 /* Set the optimization level of the implicit global context.
  *
  * Thread safety: the global context is single-threaded by default. */
-int smc_set_optimization_level(int level);
+SMC_API int smc_set_optimization_level(int level);
 
 /* Get the optimization level of the implicit global context.
  * Returns 1 if the library is not initialized. */
-int smc_get_optimization_level(void);
+SMC_API int smc_get_optimization_level(void);
 
 /* -------------------------------------------------------------------------- */
 /* Tier 1: Development / tooling / embedded SBCL — expression strings       */
@@ -232,14 +232,14 @@ int smc_get_optimization_level(void);
  *
  * Preconditions: smc_init() has succeeded; EXPR and OUT are non-NULL.
  * Thread safety: uses the single-threaded global context by default. */
-int smc_eval_double(const char *expr, double *out);
-int smc_eval_double_with(smc_context_t *ctx, const char *expr, double *out);
+SMC_API int smc_eval_double(const char *expr, double *out);
+SMC_API int smc_eval_double_with(smc_context_t *ctx, const char *expr, double *out);
 
-int smc_eval_float(const char *expr, float *out);
-int smc_eval_float_with(smc_context_t *ctx, const char *expr, float *out);
+SMC_API int smc_eval_float(const char *expr, float *out);
+SMC_API int smc_eval_float_with(smc_context_t *ctx, const char *expr, float *out);
 
-int smc_eval_int(const char *expr, int64_t *out);
-int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out);
+SMC_API int smc_eval_int(const char *expr, int64_t *out);
+SMC_API int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out);
 
 /* -------------------------------------------------------------------------- */
 /* Tier 2: Production generated-code — expression IDs, no strings             */
@@ -254,17 +254,17 @@ int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out);
  * Thread safety: safe to call concurrently from multiple threads.
  * Returns SMC_OK on success, SMC_ERR_NOT_FOUND for an unknown ID, or
  * SMC_ERR_ARITY if ARGC does not match the expression's arity. */
-int smc_call_double(smc_expr_id_t expr_id,
-                    const double *args, size_t argc,
-                    double *out);
+SMC_API int smc_call_double(smc_expr_id_t expr_id,
+                            const double *args, size_t argc,
+                            double *out);
 
-int smc_call_float(smc_expr_id_t expr_id,
-                   const float *args, size_t argc,
-                   float *out);
+SMC_API int smc_call_float(smc_expr_id_t expr_id,
+                           const float *args, size_t argc,
+                           float *out);
 
-int smc_call_int(smc_expr_id_t expr_id,
-                 const int64_t *args, size_t argc,
-                 int64_t *out);
+SMC_API int smc_call_int(smc_expr_id_t expr_id,
+                         const int64_t *args, size_t argc,
+                         int64_t *out);
 
 /* -------------------------------------------------------------------------- */
 /* Variables                                                                  */
@@ -274,28 +274,28 @@ int smc_call_int(smc_expr_id_t expr_id,
  * by subsequent Tier 1 expression evaluations.
  *
  * Thread safety: uses the single-threaded global context by default. */
-int smc_set_variable_double(const char *name, double value);
-int smc_set_variable_double_with(smc_context_t *ctx, const char *name, double value);
+SMC_API int smc_set_variable_double(const char *name, double value);
+SMC_API int smc_set_variable_double_with(smc_context_t *ctx, const char *name, double value);
 
 /* Clear all variable bindings in the global context. */
-int smc_clear_variables(void);
-int smc_clear_variables_with(smc_context_t *ctx);
+SMC_API int smc_clear_variables(void);
+SMC_API int smc_clear_variables_with(smc_context_t *ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Cache control                                                              */
 /* -------------------------------------------------------------------------- */
 
 /* Clear the cache.  In the stub runtime this is a no-op that returns SMC_OK. */
-int smc_cache_clear(void);
-int smc_cache_clear_with(smc_context_t *ctx);
+SMC_API int smc_cache_clear(void);
+SMC_API int smc_cache_clear_with(smc_context_t *ctx);
 
 /* Save/load the cache.  These require an SBCL-backed runtime or a generated
  * build and return SMC_ERR_NOT_IMPL in the standalone stub runtime. */
-int smc_cache_save(const char *path);
-int smc_cache_save_with(smc_context_t *ctx, const char *path);
+SMC_API int smc_cache_save(const char *path);
+SMC_API int smc_cache_save_with(smc_context_t *ctx, const char *path);
 
-int smc_cache_load(const char *path);
-int smc_cache_load_with(smc_context_t *ctx, const char *path);
+SMC_API int smc_cache_load(const char *path);
+SMC_API int smc_cache_load_with(smc_context_t *ctx, const char *path);
 
 /* -------------------------------------------------------------------------- */
 /* Source generation (build-time optimizer output)                            */
@@ -303,8 +303,8 @@ int smc_cache_load_with(smc_context_t *ctx, const char *path);
 
 /* Generate a C source file containing hot cached expressions.  This requires
  * an SBCL-backed runtime and returns SMC_ERR_NOT_IMPL in the stub runtime. */
-int smc_generate_c_source(const char *out_path);
-int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path);
+SMC_API int smc_generate_c_source(const char *out_path);
+SMC_API int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path);
 
 /* -------------------------------------------------------------------------- */
 /* Expression metadata (Tier 2)                                                 */
@@ -312,16 +312,16 @@ int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path);
 
 /* Return the number of expressions available in the generated dispatch table.
  * Returns 0 if no generated table is linked. */
-int smc_expr_count(void);
+SMC_API int smc_expr_count(void);
 
 /* Return the arity (number of free variables) of expression ID.
  * Returns 1 if the ID is not present. */
-size_t smc_expr_arity(smc_expr_id_t id);
+SMC_API size_t smc_expr_arity(smc_expr_id_t id);
 
 /* Return the original expression string for expression ID, or NULL if the ID
  * is not present.  The returned pointer points to static storage in the
  * generated dispatch table and is valid for the lifetime of the process. */
-const char *smc_expr_source(smc_expr_id_t id);
+SMC_API const char *smc_expr_source(smc_expr_id_t id);
 
 /* -------------------------------------------------------------------------- */
 /* Error handling                                                             */
@@ -329,15 +329,15 @@ const char *smc_expr_source(smc_expr_id_t id);
 
 /* Return a human-readable string for an error code.  Safe to call before
  * smc_init(). */
-const char *smc_error_string(int code);
+SMC_API const char *smc_error_string(int code);
 
 /* Return the last error recorded in the global context.  The pointer is valid
  * until the next call that modifies the global error slot. */
-const smc_error_t *smc_last_error(void);
+SMC_API const smc_error_t *smc_last_error(void);
 
 /* Return the last error recorded in an explicit context.  The pointer is valid
  * until the next call that modifies the same context's error slot. */
-const smc_error_t *smc_last_error_with(smc_context_t *ctx);
+SMC_API const smc_error_t *smc_last_error_with(smc_context_t *ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Observability                                                              */
@@ -346,11 +346,11 @@ const smc_error_t *smc_last_error_with(smc_context_t *ctx);
 /* Fill OUT with a snapshot of the current global statistics counters.
  * OUT must be non-NULL.  The counters are monotonically increasing for the
  * lifetime of the library (reset only by smc_reset_stats()). */
-int smc_get_stats(smc_stats_t *out);
+SMC_API int smc_get_stats(smc_stats_t *out);
 
 /* Reset all global statistics counters to zero.  This is not thread-safe and
  * should not be called concurrently with smc_call_* or smc_eval_*. */
-int smc_reset_stats(void);
+SMC_API int smc_reset_stats(void);
 
 #ifdef __cplusplus
 }

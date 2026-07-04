@@ -26,6 +26,8 @@
     total-pass))
 
 (defmacro define-test-suite (name &body tests)
+  "Define a test suite named NAME containing TESTS.
+   Each test form is evaluated and any error is reported as a failure."
   `(progn
      (defun ,name ()
        (let ((pass 0) (fail 0))

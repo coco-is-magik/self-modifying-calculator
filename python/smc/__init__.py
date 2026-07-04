@@ -18,7 +18,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-from ctypes import c_char_p, c_double, c_float, c_int, c_int64, c_size_t, c_uint32
+from ctypes import c_char_p, c_double, c_float, c_int, c_int64, c_size_t, c_uint32, c_uint64
 from pathlib import Path
 from typing import Optional, Union
 
@@ -79,9 +79,12 @@ class _LibSMC:
         # then resolve to the generated implementations.
         generated_name = self._find_generated_library(lib_name)
         if generated_name:
+            # Load the runtime first so the generated table can resolve
+            # symbols like smc_global_stats that it references.
+            self._lib = ctypes.CDLL(lib_name, mode=ctypes.RTLD_GLOBAL)
             ctypes.CDLL(generated_name, mode=ctypes.RTLD_GLOBAL)
-
-        self._lib = ctypes.CDLL(lib_name)
+        else:
+            self._lib = ctypes.CDLL(lib_name)
 
         # Lifecycle
         self._lib.smc_init.restype = c_int

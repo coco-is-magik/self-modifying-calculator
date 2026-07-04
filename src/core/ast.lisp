@@ -27,9 +27,11 @@
   (intern-ast (list :constant value)))
 
 (defun constant-node-p (node)
+  "Return true if NODE is a constant AST node."
   (and (consp node) (eq (car node) :constant)))
 
 (defun constant-value (node)
+  "Return the numeric value of a constant AST node."
   (second node))
 
 (defun variable-node (name)
@@ -37,9 +39,11 @@
   (intern-ast (list :variable name)))
 
 (defun variable-node-p (node)
+  "Return true if NODE is a variable AST node."
   (and (consp node) (eq (car node) :variable)))
 
 (defun variable-name (node)
+  "Return the symbolic name of a variable AST node."
   (second node))
 
 (defun make-ast (op &rest args)

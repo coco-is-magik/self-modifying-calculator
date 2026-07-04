@@ -18,22 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* -------------------------------------------------------------------------- */
-/* Error codes                                                                */
-/* -------------------------------------------------------------------------- */
-
-#define SMC_OK             0
-#define SMC_ERR_INIT      -1
-#define SMC_ERR_PARSE     -2
-#define SMC_ERR_EVAL      -3
-#define SMC_ERR_NOT_IMPL  -4
-#define SMC_ERR_IO        -5
-#define SMC_ERR_INVALID   -6
-#define SMC_ERR_ABI       -7
-#define SMC_ERR_ARITY     -8
-#define SMC_ERR_NOT_FOUND -9
-#define SMC_ERR_THREAD    -10
-#define SMC_ERR_SHUTDOWN  -11
+/* (Error codes are defined in smc.h and used directly.) */
 
 /* -------------------------------------------------------------------------- */
 /* Error state                                                                */
@@ -45,7 +30,7 @@ static smc_error_t g_last_error = {0, ""};
 /* Statistics counters                                                        */
 /* -------------------------------------------------------------------------- */
 
-smc_stats_t smc_global_stats = {0, 0, 0, 0, 0, 0, 0, 0};
+SMC_API smc_stats_t smc_global_stats = {0, 0, 0, 0, 0, 0, 0, 0};
 
 static smc_stats_t *g_stats = &smc_global_stats;
 

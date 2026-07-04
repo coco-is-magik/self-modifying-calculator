@@ -62,16 +62,16 @@ the cached result is reused directly.
 
 ### Basic Arithmetic
 ```bash
-clisp calculator.lsp 5+7
+./scripts/run-calculator.sh "5+7"
 # 12
 
-clisp calculator.lsp 8-4
+./scripts/run-calculator.sh "8-4"
 # 4
 
-clisp calculator.lsp 4*2
+./scripts/run-calculator.sh "4*2"
 # 8
 
-clisp calculator.lsp 10/5
+./scripts/run-calculator.sh "10/5"
 # 2
 ```
 
@@ -316,9 +316,8 @@ See `docs/plan.md`, `docs/HANDOFF.md`, and `docs/notes/session-4-implementation-
 
 ### Prerequisites
 - **SBCL** (Steel Bank Common Lisp) — required runtime
-- **CLISP** — optional, for backward compatibility with the existing `calculator.lsp`
 
-SBCL is required because the project relies on native compilation and runtime code generation (`compile`, `fdefinition`) to implement self-modification.
+SBCL is required because the project relies on native compilation and runtime code generation (`compile`, `fdefinition`) to implement self-modification. The old `calculator.lsp` file is a CLISP-compatible legacy script and is not actively maintained.
 
 ### Setup
 ```bash
@@ -358,6 +357,8 @@ sbcl --noinform \
 ```bash
 clisp calculator.lsp 5+7
 ```
+
+> Note: `calculator.lsp` is preserved only for historical compatibility. New usage should use the SBCL-based scripts above.
 
 ---
 

@@ -19,19 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* -------------------------------------------------------------------------- */
-/* Error codes                                                                */
-/* -------------------------------------------------------------------------- */
-
-#define SMC_OK             0
-#define SMC_ERR_INIT      -1
-#define SMC_ERR_NOT_IMPL  -4
-#define SMC_ERR_INVALID   -6
-#define SMC_ERR_ABI       -7
-#define SMC_ERR_ARITY     -8
-#define SMC_ERR_NOT_FOUND -9
-#define SMC_ERR_THREAD    -10
-#define SMC_ERR_SHUTDOWN  -11
+/* (Error codes are defined in smc.h and used directly.) */
 
 /* -------------------------------------------------------------------------- */
 /* Error state                                                                */

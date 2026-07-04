@@ -10,6 +10,7 @@
    :ast-p
    :ast-op
    :ast-args
+   :ast-to-string
    :constant-node
    :constant-node-p
    :constant-value
@@ -19,32 +20,46 @@
    :walk-ast
    :map-ast
    :subtrees
+   :clear-ast-intern-table
    ;; Evaluator
    :evaluate
+   :evaluate-node
+   :evaluate-node-cached
+   :evaluate-node-uncached
    :register-operator
    :operator-function
+   :operator-base-function
    :variable-value
+   :set-variable-value
    :*operator-table*
+   :*original-operator-functions*
    :run-calculator
    :main
    :join-strings
-    ;; Cache
-    :make-cache
-    :cache-get
-    :cache-set
-    :cache-hashtable
-    :*global-cache*
-    :*auto-persist-cache*
-    :*cache-file-path*
-    :save-cache
-    :load-cache
-    :maybe-load-global-cache
-    :maybe-save-global-cache
-    ;; Parser
-    :parse
-    :clear-parse-cache
-    :parse-cache-size
-    :*parse-cache-max-size*
+   ;; Cache
+   :make-cache
+   :cache-get
+   :cache-set
+   :cache-contains-p
+   :cache-clear
+   :cache-size
+   :cache-statistics
+   :cache-needs-recompile-p
+   :mark-cache-compiled
+   :*global-cache*
+   :*auto-persist-cache*
+   :*cache-file-path*
+   :save-cache
+   :load-cache
+   :maybe-load-global-cache
+   :maybe-save-global-cache
+   ;; Parser
+   :parse
+   :tokenize
+   :clear-parse-cache
+   :parse-cache-size
+   :*parse-cache*
+   :*parse-cache-max-size*
    ;; Statistics
    :mean
    :variance
@@ -71,13 +86,17 @@
    :register-statistics-operators
    ;; Internal utilities exposed for tests / benchmarks
    :run-all-benchmarks
-   :evaluate-node
    :enable-operator-specialization
+   :specialize-operator
+   :wrap-operator-with-specialization
+   :install-specializing-wrapper
    ;; Test runner
    :run-all-tests
-    ;; Unified optimization pipeline
-    :configure-optimization
-    :*pipeline-level*
-    :*pipeline-specialization-threshold*
-    :*pipeline-source-rewrite-threshold*
-    :*pipeline-source-rewrite-interval*))
+   ;; Unified optimization pipeline
+   :configure-optimization
+   :*pipeline-level*
+   :*pipeline-specialization-threshold*
+   :*pipeline-source-rewrite-threshold*
+   :*pipeline-source-rewrite-interval*
+   :pipeline-enable-specialization
+   :pipeline-rewrite-source))
