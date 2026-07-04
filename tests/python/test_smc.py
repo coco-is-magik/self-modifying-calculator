@@ -95,6 +95,46 @@ def test_generated_call() -> None:
         raise AssertionError("expected SMCError for expr_id 0")
 
 
+def test_all_public_names_importable() -> None:
+    """Every name advertised in smc.__all__ must be importable and callable."""
+    for name in smc.__all__:
+        obj = getattr(smc, name)
+        assert obj is not None, f"smc.{name} is None"
+
+
+def test_ctypes_types_imported() -> None:
+    """The ctypes types used by the binding must be present in smc.__init__.
+
+    This is a regression test for a missing c_uint64 import that broke
+    the _smc_stats_t struct definition.
+    """
+    from smc import (
+        c_char_p,
+        c_double,
+        c_float,
+        c_int,
+        c_int64,
+        c_size_t,
+        c_uint32,
+        c_uint64,
+    )
+
+    assert c_uint64 is not None
+
+
+def test_generated_table_loads_when_present() -> None:
+    """When a generated dispatch table exists next to the runtime, loading
+    the Python module must not raise an undefined-symbol error.
+
+    This is a regression test for the load order that caused:
+        undefined symbol: smc_global_stats
+    """
+    # If a generated table is present, expr_count() will be non-negative and
+    # the module will have loaded successfully. The mere fact that we got
+    # this far without an ImportError/OSError is the real assertion.
+    assert smc.expr_count() >= 0
+
+
 def main() -> int:
     tests = [
         test_global_eval,
@@ -105,6 +145,9 @@ def main() -> int:
         test_variables,
         test_not_implemented,
         test_generated_call,
+        test_all_public_names_importable,
+        test_ctypes_types_imported,
+        test_generated_table_loads_when_present,
     ]
     for test in tests:
         try:

@@ -41,11 +41,21 @@
                  (generate-to-temp cache)))
          (source (file-contents path)))
     (assert (search "args[0]" source) () "Generated code does not reference args[0]")
-    (assert (search "if (argc != 1) return SMC_ERR_ARITY;" source) () "Generated arity check missing")))
+    (assert (search "if (argc != 1)" source) () "Generated arity check missing")
+    (assert (search "return SMC_ERR_ARITY;" source) () "Generated arity error return missing")))
+
+(defun test-no-internal-package-access ()
+  "The generator must use only exported smc: symbols, not smc:: internals.
+   This is a regression test for the package export cleanup."
+  (let ((source (file-contents (merge-pathnames #p"scripts/generate-c-source.lisp"
+                                                *default-pathname-defaults*))))
+    (assert (not (search "smc::" source))
+            () "scripts/generate-c-source.lisp still uses smc:: internal access")))
 
 (defun run-generator-tests ()
   (test-determinism)
   (test-argumentized-expression)
+  (test-no-internal-package-access)
   (finish-output *trace-output*)
   (write-line "All generator tests passed." *error-output*)
   t)

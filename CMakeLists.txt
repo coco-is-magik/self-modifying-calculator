@@ -207,6 +207,30 @@ if(SMC_BUILD_TESTS)
         add_test(NAME test_static_link COMMAND test_static_link)
         add_test(NAME test_shared_link COMMAND test_shared_link)
     endif()
+
+    # Regression: public symbols must be exported from the shared runtime.
+    add_executable(test_symbol_visibility tests/c/test_symbol_visibility.c)
+    if(SMC_BUILD_SHARED)
+        target_link_libraries(test_symbol_visibility PRIVATE smc_shared)
+    else()
+        target_link_libraries(test_symbol_visibility PRIVATE smc_static)
+    endif()
+    add_test(NAME test_symbol_visibility COMMAND test_symbol_visibility)
+
+    # Regression: all C runtime files must compile with strict -pedantic.
+    add_library(smc_pedantic_check OBJECT
+        src/c/smc_runtime_stub.c
+        src/c/smc_generated_runtime.c
+        src/c/smc_runtime_sbcl.c
+    )
+    target_include_directories(smc_pedantic_check PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    )
+    target_compile_options(smc_pedantic_check PRIVATE
+        -Wall -Wextra -Werror -pedantic -std=c99
+    )
+    add_test(NAME test_pedantic_compile
+        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target smc_pedantic_check)
 endif()
 
 # ---------------------------------------------------------------------------

@@ -183,7 +183,7 @@
 
 (defun canonical-cache-key (ast)
   "Return a stable canonical key for AST: a cons of (ast-string . arity)."
-  (cons (smc::ast-to-string ast) (expression-arity ast)))
+  (cons (smc:ast-to-string ast) (expression-arity ast)))
 
 (defun collect-cache-entries (cache)
   "Return a list of (ast . value) entries from CACHE, sorted by canonical key."
@@ -233,7 +233,7 @@
 (defun generate-c-source (output-path &key (cache smc:*global-cache*))
   "Generate a C source file at OUTPUT-PATH from CACHE."
   (let* ((entries (collect-cache-entries cache))
-         (exprs (mapcar (lambda (entry) (smc::ast-to-string (car entry))) entries))
+         (exprs (mapcar (lambda (entry) (smc:ast-to-string (car entry))) entries))
          (id-map (make-hash-table :test 'equal))
          (identifiers (mapcar (lambda (expr) (c-identifier expr)) exprs)))
 
@@ -385,7 +385,7 @@
                     "1.5*2"
                     "7/2"))
       (generate-c-source path)
-      (format t "Generated C source: ~A (~D expressions)~%" path (smc::cache-size smc:*global-cache*))
+      (format t "Generated C source: ~A (~D expressions)~%" path (smc:cache-size smc:*global-cache*))
       (sb-ext:exit :code 0))))
 
 ;; Run main only when invoked as a script, not when loaded as a library.
