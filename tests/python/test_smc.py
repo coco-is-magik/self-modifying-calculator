@@ -73,7 +73,11 @@ def test_not_implemented() -> None:
 
 
 def test_generated_call() -> None:
-    """Exercise the Tier 2 hot path when a generated dispatch table is linked."""
+    """Exercise the Tier 2 hot path when a generated dispatch table is linked.
+
+    The default generated table now contains argumentized expressions, so we
+    bind variables in the global context before cross-checking against Tier 1.
+    """
     count = smc.expr_count()
     if count == 0:
         print("SKIP: test_generated_call (no generated dispatch table)")
@@ -82,8 +86,16 @@ def test_generated_call() -> None:
     for expr_id in range(1, count + 1):
         source = smc.expr_source(expr_id)
         assert source is not None
+        arity = smc.expr_arity(expr_id)
+        args = (3.2, 2.1)[:arity]
+
+        smc.clear_variables()
+        if arity >= 1:
+            smc.set_variable("x", 3.2)
+        if arity >= 2:
+            smc.set_variable("y", 2.1)
         expected = smc.eval(source)
-        value = smc.call(expr_id)
+        value = smc.call(expr_id, *args)
         assert approx_eq(value, expected), f"id={expr_id} source={source!r}"
 
     # Invalid IDs should still raise.

@@ -71,6 +71,30 @@
     - **Resolution**: Created `docs/c-api-maturity-plan.md`; updated `docs/embedding-roadmap.md` and `README.md` to reference it.
     - **Planned resolution**: Implement phases one at a time, starting with Phase 1 (ABI contract & header stabilization).
 
+11. **README overstates C/Python embedding maturity** (2026-07-06)
+    - **Description**: The README claimed all three C/Python embedding milestones were complete. In reality, Milestone 1 (stable ABI v1, stub runtime, Python binding, C generator) is complete; Milestones 2 and 3 are functional scaffolds that still contain important gaps.
+    - **Impact**: New users and reviewers could be misled into thinking the production generated-code path is fully mature.
+    - **Resolution**: Updated README to mark Milestones 2 and 3 as "In Progress" and added an explicit limitations section describing the remaining gaps.
+    - **Planned resolution**: Close the documented gaps (argumentized default generator output, fallback runtime error distinctions, expanded C correctness suite) before marking Milestones 2 and 3 complete.
+
+12. **Default generator warm-cache emits mostly ground expressions** (2026-07-06)
+    - **Description**: `scripts/generate-c-source.lisp` warms the cache by calling `smc:run-calculator` on a list of scalar expressions. Expressions containing free variables fail to evaluate and are not cached, so the generated `smc_generated.c` contains only arity-0 expressions. Argumentized expressions can be generated only by manually calling `smc:evaluate` with variable bindings before running the generator.
+    - **Impact**: The documented build flow does not produce the argumentized expressions that the Tier 2 API and examples are designed for.
+    - **Resolution**: In progress — update `warm-cache` to bind variables and evaluate representative argumentized expressions.
+    - **Planned resolution**: Add expressions such as `x^2 + y` and `x^2 + 5*x + 6` to the default warm-cache with explicit variable bindings.
+
+13. **Generated-runtime fallback error model is coarse** (2026-07-06)
+    - **Description**: `src/c/smc_generated_runtime.c` returned `SMC_ERR_NOT_IMPL` for every Tier 2 call when no generated dispatch table was linked. It did not distinguish "no generated table linked," "unknown expression ID," or "wrong argument count."
+    - **Impact**: Host programs could not tell whether they forgot to link a generated table, passed a bad ID, or passed the wrong arity.
+    - **Resolution**: Updated the fallback to return `SMC_ERR_INVALID` for null output pointers and keep `SMC_ERR_NOT_IMPL` only for the no-generated-table case. (Distinguishing `SMC_ERR_NOT_FOUND` / `SMC_ERR_ARITY` inside the fallback is not possible without a generated table; those codes are produced by the generated dispatch table itself.)
+    - **Planned resolution**: None remaining for this item.
+
+14. **C/Python embedding tests now cover argumentized expressions** (2026-07-06)
+    - **Description**: The default generator warm-cache, the C acceptance tests, the Python acceptance test, and the Lisp generator test were updated to exercise argumentized expressions (`x^2 + y`, `x^2 + 5*x + 6`).
+    - **Impact**: The documented build flow now produces real arity-1 and arity-2 expressions, and the tests verify they match Tier 1 evaluation.
+    - **Resolution**: Completed.
+    - **Planned resolution**: None.
+
 ## Documentation
 
 11. **README test command simplified** (2026-06-28)

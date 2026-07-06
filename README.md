@@ -175,15 +175,17 @@ The project is organized into implementation phases:
 > **Known issues and limitations**: See [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md)
 
 
-## C & Python Embedding (All Milestones Complete)
+## C & Python Embedding (Milestone 1 Complete; Milestones 2–3 In Progress)
 
-SMC is now usable as an embeddable library from **C** and **Python**. The embedding layer is staged across three milestones:
+SMC has a working embeddable scaffold from **C** and **Python**, but the production path is not fully mature. The embedding layer is staged across three milestones:
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a proof-of-concept C generator |
-| **Milestone 2** | ✅ Complete | Production generated-code API (`smc_call_*`) with stable expression IDs, real cache walker, and C/Python acceptance tests |
-| **Milestone 3** | ✅ Complete | CMake package, `pyproject.toml`, integration guide, and game/simulation benchmarks |
+| **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a C generator |
+| **Milestone 2** | 🔄 In Progress | Production generated-code API (`smc_call_*`) works for ground expressions and argumentized expressions when the cache is warmed correctly; the default build flow still emits mostly ground expressions |
+| **Milestone 3** | 🔄 In Progress | CMake package, `pyproject.toml`, integration guide, and game/simulation benchmarks exist but need hardening |
+
+> **Note**: The C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) tracks the remaining work. The most important current gaps are: making argumentized expressions appear in the default generated output, hardening the generated-runtime fallback error model, and expanding the C-first correctness suite.
 
 ### Architecture
 
@@ -288,7 +290,11 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embed
 - The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, unary `+`/`-`, and variable binding.
 - Cache persistence and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
-- The generated-code path supports scalar expressions with free variables; vector/matrix return values are not yet supported.
+- The generated-code path supports scalar expressions with free variables **when the cache is warmed with variable bindings**. The default `scripts/generate-c-source.lisp` warm-cache currently emits mostly ground expressions; argumentized expressions are not yet produced by the normal documented build flow.
+- The generated-runtime fallback returns `SMC_ERR_NOT_IMPL` for all Tier 2 calls when no generated table is linked; it does not yet distinguish "no generated table," "bad ID," and "wrong arity."
+- Vector/matrix return values are not yet supported in generated C.
+
+> **Current status and next steps**: See [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) and [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md).
 
 See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md), [`docs/integration-guide.md`](docs/integration-guide.md), and the active C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) for the full roadmap and integration details.
 

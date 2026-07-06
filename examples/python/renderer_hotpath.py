@@ -31,14 +31,27 @@ def main() -> None:
         print("No generated expressions; nothing to benchmark.")
         return
 
+    # Find a generated expression with arity 1 so we can pass t as a real
+    # argument. The default generated table includes "x ^ 2".
+    hot_id = 0
+    for expr_id in range(1, count + 1):
+        if smc.expr_arity(expr_id) == 1:
+            hot_id = expr_id
+            break
+    if hot_id == 0:
+        print("No arity-1 generated expression found; nothing to benchmark.")
+        return
+
+    hot_source = smc.expr_source(hot_id)
+    print(f"Hot expression id={hot_id} source={hot_source!r}")
+
     iterations = 100_000
     accumulator = 0.0
 
     start = time.perf_counter()
     for i in range(1, iterations + 1):
-        expr_id = (i % count) + 1
         t = i * 0.001
-        accumulator += smc.call(expr_id, t)
+        accumulator += smc.call(hot_id, t)
     elapsed = time.perf_counter() - start
 
     print(f"Computed {iterations} hot-path calls in {elapsed:.3f} s "

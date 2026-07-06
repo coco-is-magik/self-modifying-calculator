@@ -50,32 +50,82 @@
         } \
     } while (0)
 
+/* Cross-check a generated expression against Tier 1.
+ * For ground expressions, pass no args. For argumentized expressions,
+ * bind variables in the global context and pass matching args.
+ *
+ * The generator orders variables by left-to-right occurrence, deduplicated.
+ * For the default generated set that means:
+ *   arity 1: x is the only variable -> args[0] is x
+ *   arity 2: x occurs before y      -> args[0] is x, args[1] is y
+ */
+static int cross_check_expression(int id, const char *source, size_t arity) {
+    double actual = 0.0;
+    double args[2] = {3.2, 2.1};
+    int rc = smc_call_double((smc_expr_id_t)id,
+                             (arity == 0) ? NULL : args,
+                             arity,
+                             &actual);
+    if (rc != SMC_OK) {
+        fprintf(stderr, "FAIL: smc_call_double(%d) returned %d\n", id, rc);
+        return 1;
+    }
+
+    smc_clear_variables();
+    if (arity >= 1) {
+        rc = smc_set_variable_double("x", args[0]);
+        if (rc != SMC_OK) {
+            fprintf(stderr, "FAIL: smc_set_variable_double(x) returned %d\n", rc);
+            return 1;
+        }
+    }
+    if (arity >= 2) {
+        rc = smc_set_variable_double("y", args[1]);
+        if (rc != SMC_OK) {
+            fprintf(stderr, "FAIL: smc_set_variable_double(y) returned %d\n", rc);
+            return 1;
+        }
+    }
+
+    double expected = 0.0;
+    rc = smc_eval_double(source, &expected);
+    if (rc != SMC_OK) {
+        fprintf(stderr, "FAIL: smc_eval_double(%s) returned %d\n", source, rc);
+        return 1;
+    }
+
+    if (fabs(actual - expected) > 1e-9) {
+        fprintf(stderr, "FAIL: id=%d source=%s actual=%g expected=%g\n",
+                id, source, actual, expected);
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
     int rc = smc_init();
     ASSERT_OK(rc, "smc_init");
 
     int count = smc_expr_count();
     printf("Generated expressions: %d\n", count);
-    ASSERT_EQ(count, 10, "smc_expr_count");
+    if (count <= 0) {
+        fprintf(stderr, "FAIL: no generated expressions found\n");
+        return 1;
+    }
 
-    /* Evaluate each generated expression by ID. */
+    /* Evaluate each generated expression by ID and cross-check against Tier 1. */
     for (int id = 1; id <= count; id++) {
-        double value = 0.0;
-        rc = smc_call_double((smc_expr_id_t)id, NULL, 0, &value);
-        ASSERT_OK(rc, "smc_call_double");
-
         const char *source = smc_expr_source((smc_expr_id_t)id);
         if (!source) {
             fprintf(stderr, "FAIL: smc_expr_source(%d) returned NULL\n", id);
             return 1;
         }
-        printf("  id=%d source=%s value=%g\n", id, source, value);
+        size_t arity = smc_expr_arity((smc_expr_id_t)id);
+        printf("  id=%d arity=%zu source=%s\n", id, arity, source);
 
-        /* Cross-check against Tier 1 parser for the same expression. */
-        double expected = 0.0;
-        rc = smc_eval_double(source, &expected);
-        ASSERT_OK(rc, "smc_eval_double cross-check");
-        ASSERT_NEAR(value, expected, 1e-9, source);
+        if (cross_check_expression(id, source, arity) != 0) {
+            return 1;
+        }
     }
 
     /* Verify invalid ID returns SMC_ERR_NOT_FOUND. */
@@ -86,10 +136,23 @@ int main(void) {
     rc = smc_call_double((smc_expr_id_t)(count + 1), NULL, 0, &dummy);
     ASSERT_EQ(rc, SMC_ERR_NOT_FOUND, "invalid expr_id count+1");
 
-    /* Verify wrong arity returns SMC_ERR_ARITY. */
+    /* Verify wrong arity returns SMC_ERR_ARITY. Pick a ground expression if
+     * one exists; otherwise use the first expression and pass one extra arg. */
+    int ground_id = 0;
+    for (int id = 1; id <= count; id++) {
+        if (smc_expr_arity((smc_expr_id_t)id) == 0) {
+            ground_id = id;
+            break;
+        }
+    }
     double args[1] = {1.0};
-    rc = smc_call_double((smc_expr_id_t)1, args, 1, &dummy);
-    ASSERT_EQ(rc, SMC_ERR_ARITY, "wrong arity for ground expr");
+    if (ground_id != 0) {
+        rc = smc_call_double((smc_expr_id_t)ground_id, args, 1, &dummy);
+        ASSERT_EQ(rc, SMC_ERR_ARITY, "wrong arity for ground expr");
+    } else {
+        rc = smc_call_double((smc_expr_id_t)1, args, smc_expr_arity(1) + 1, &dummy);
+        ASSERT_EQ(rc, SMC_ERR_ARITY, "wrong arity for expr 1");
+    }
 
     rc = smc_shutdown();
     ASSERT_OK(rc, "smc_shutdown");

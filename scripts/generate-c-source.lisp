@@ -364,12 +364,33 @@
     output-path))
 
 (defun warm-cache (exprs)
-  "Evaluate each expression in EXPRS to populate the global cache."
-  (dolist (expr exprs)
-    (handler-case
-        (smc:run-calculator expr)
-      (error (e)
-        (format *error-output* "Warning: failed to warm cache for ~S: ~A~%" expr e)))))
+  "Evaluate each expression in EXPRS to populate the global cache.
+   Expressions that contain free variables should be supplied as
+   (expr-string . ((var . value) ...)) alists; they are evaluated with
+   the given variable bindings so that argumentized expressions enter
+   the cache."
+  (dolist (entry exprs)
+    (let ((expr (if (consp entry) (car entry) entry))
+          (vars (if (consp entry) (cdr entry) nil)))
+      (handler-case
+          (if vars
+              (smc:evaluate (smc:parse expr) :variables vars)
+              (smc:run-calculator expr))
+        (error (e)
+          (format *error-output* "Warning: failed to warm cache for ~S: ~A~%" expr e))))))
+
+(defun warm-cache-default ()
+  "Warm the cache with a representative set of scalar and argumentized
+   expressions. Argumentized expressions are bound with sample values so
+   they enter the cache and are emitted by the generator."
+  (warm-cache '("2+3*4"
+                "(2+3)*4"
+                "2^3^2"
+                "10-4/2"
+                "1.5*2"
+                "7/2"
+                ("x^2 + y" . ((:x . 2.0) (:y . 3.0)))
+                ("x^2 + 5*x + 6" . ((:x . 2.0))))))
 
 (defun main ()
   (let ((args (cdr sb-ext:*posix-argv*)))
@@ -377,13 +398,9 @@
       (format *error-output* "Usage: sbcl --script scripts/generate-c-source.lisp <output-file>~%")
       (sb-ext:exit :code 1))
     (let ((path (pathname (first args))))
-      ;; Warm the cache with a representative set of scalar expressions.
-      (warm-cache '("2+3*4"
-                    "(2+3)*4"
-                    "2^3^2"
-                    "10-4/2"
-                    "1.5*2"
-                    "7/2"))
+      ;; Warm the cache with a representative set of scalar and
+      ;; argumentized expressions.
+      (warm-cache-default)
       (generate-c-source path)
       (format t "Generated C source: ~A (~D expressions)~%" path (smc:cache-size smc:*global-cache*))
       (sb-ext:exit :code 0))))
