@@ -21,8 +21,10 @@ smc-benchmark-*.out
 *.dylib
 *.dll
 libsmc*
+
+# CMake build directories
 build/
-build-sanitize/
+build-*/
 
 # Python build artifacts
 __pycache__/
@@ -32,6 +34,12 @@ python/*.egg-info/
 python/build/
 python/dist/
 python/README.md
+
+# Python packaging artifacts
+python/*.egg-info/
+python/__pycache__/
+python/smc/__pycache__/
+*.pyc
 
 # Generated C source (kept out of repo; produced by scripts/generate-c-source.lisp)
 smc_generated.c

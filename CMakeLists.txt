@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.16)
 project(smc LANGUAGES C VERSION 0.2.0)
 
 # ---------------------------------------------------------------------------
+# Install directories
+# ---------------------------------------------------------------------------
+include(GNUInstallDirs)
+
+# ---------------------------------------------------------------------------
 # Options
 # ---------------------------------------------------------------------------
 option(SMC_BUILD_SHARED "Build libsmc as a shared library" ON)
@@ -11,6 +16,8 @@ option(SMC_BUILD_TESTS "Build C acceptance tests" ON)
 option(SMC_BUILD_BENCHMARKS "Build C benchmarks" ON)
 option(SMC_GENERATED_SOURCE "Path to a generated smc_generated.c dispatch table" "")
 option(SMC_THREAD_SAFE "Enable internal locking for the global context" OFF)
+option(SMC_SANITIZE_THREAD "Build with ThreadSanitizer" OFF)
+option(SMC_SANITIZE_MEMORY "Build with MemorySanitizer" OFF)
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -27,6 +34,22 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 # ---------------------------------------------------------------------------
 if(SMC_THREAD_SAFE)
     add_definitions(-DSMC_THREAD_SAFE=1)
+endif()
+
+if(SMC_SANITIZE_THREAD)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        message(FATAL_ERROR "SMC_SANITIZE_THREAD requires GCC or Clang")
+    endif()
+    add_compile_options(-fsanitize=thread)
+    add_link_options(-fsanitize=thread)
+endif()
+
+if(SMC_SANITIZE_MEMORY)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "SMC_SANITIZE_MEMORY requires Clang")
+    endif()
+    add_compile_options(-fsanitize=memory -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=memory)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -139,6 +162,11 @@ if(SMC_BUILD_EXAMPLES)
 
     add_executable(renderer_hotpath examples/c/renderer_hotpath.c)
     smc_link_executable(renderer_hotpath)
+
+    if(SMC_GENERATED_SOURCE)
+        add_executable(renderer_ray examples/c/renderer_ray.c)
+        smc_link_executable(renderer_ray)
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
@@ -206,6 +234,24 @@ if(SMC_BUILD_TESTS)
         add_test(NAME test_generated_dispatch COMMAND test_generated_dispatch)
         add_test(NAME test_static_link COMMAND test_static_link)
         add_test(NAME test_shared_link COMMAND test_shared_link)
+    endif()
+
+    if(SMC_THREAD_SAFE)
+        add_executable(test_thread_safety tests/c/test_thread_safety.c)
+        if(SMC_BUILD_STATIC)
+            target_link_libraries(test_thread_safety PRIVATE smc_static)
+        else()
+            target_link_libraries(test_thread_safety PRIVATE smc_shared)
+        endif()
+        if(SMC_GENERATED_SOURCE)
+            if(SMC_BUILD_STATIC)
+                target_link_libraries(test_thread_safety PRIVATE smc_generated_static)
+            else()
+                target_link_libraries(test_thread_safety PRIVATE smc_generated_shared)
+            endif()
+        endif()
+        target_link_libraries(test_thread_safety PRIVATE pthread)
+        add_test(NAME test_thread_safety COMMAND test_thread_safety)
     endif()
 
     # Regression: public symbols must be exported from the shared runtime.
@@ -300,12 +346,22 @@ if(NOT WIN32)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/smc.pc"
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
     )
+
+    if(SMC_GENERATED_SOURCE)
+        configure_file(
+            "${CMAKE_CURRENT_SOURCE_DIR}/smc-generated.pc.in"
+            "${CMAKE_CURRENT_BINARY_DIR}/smc-generated.pc"
+            @ONLY
+        )
+        install(FILES "${CMAKE_CURRENT_BINARY_DIR}/smc-generated.pc"
+            DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+        )
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
-include(GNUInstallDirs)
 
 install(FILES include/smc.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
@@ -347,3 +403,16 @@ install(EXPORT smcTargets
     NAMESPACE smc::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/smc
 )
+
+# Install examples
+if(SMC_BUILD_EXAMPLES)
+    if(SMC_GENERATED_SOURCE)
+        install(TARGETS hello_smc renderer_hotpath renderer_ray
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    else()
+        install(TARGETS hello_smc renderer_hotpath
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        )
+    endif()
+endif()

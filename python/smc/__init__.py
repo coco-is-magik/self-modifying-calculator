@@ -11,6 +11,11 @@ Example::
 
     ctx = smc.Context(level=2)
     print(ctx.eval("(1 + 2) ^ 3"))  # 27.0
+
+    # Tier 2 hot path with observability
+    print(smc.call(1, 3.0))
+    print(smc.get_stats())
+    smc.reset_stats()
 """
 
 from __future__ import annotations

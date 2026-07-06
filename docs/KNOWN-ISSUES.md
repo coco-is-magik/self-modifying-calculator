@@ -83,16 +83,52 @@
     - **Resolution**: In progress — update `warm-cache` to bind variables and evaluate representative argumentized expressions.
     - **Planned resolution**: Add expressions such as `x^2 + y` and `x^2 + 5*x + 6` to the default warm-cache with explicit variable bindings.
 
-13. **Generated-runtime fallback error model is coarse** (2026-07-06)
+13. **Generated-runtime fallback error model hardened** (2026-07-06)
     - **Description**: `src/c/smc_generated_runtime.c` returned `SMC_ERR_NOT_IMPL` for every Tier 2 call when no generated dispatch table was linked. It did not distinguish "no generated table linked," "unknown expression ID," or "wrong argument count."
     - **Impact**: Host programs could not tell whether they forgot to link a generated table, passed a bad ID, or passed the wrong arity.
-    - **Resolution**: Updated the fallback to return `SMC_ERR_INVALID` for null output pointers and keep `SMC_ERR_NOT_IMPL` only for the no-generated-table case. (Distinguishing `SMC_ERR_NOT_FOUND` / `SMC_ERR_ARITY` inside the fallback is not possible without a generated table; those codes are produced by the generated dispatch table itself.)
+    - **Resolution**: Updated the fallback to return `SMC_ERR_INVALID` for null output pointers and keep `SMC_ERR_NOT_IMPL` only for the no-generated-table case. The generated dispatch table itself returns `SMC_ERR_NOT_FOUND` and `SMC_ERR_ARITY`.
     - **Planned resolution**: None remaining for this item.
 
 14. **C/Python embedding tests now cover argumentized expressions** (2026-07-06)
     - **Description**: The default generator warm-cache, the C acceptance tests, the Python acceptance test, and the Lisp generator test were updated to exercise argumentized expressions (`x^2 + y`, `x^2 + 5*x + 6`).
     - **Impact**: The documented build flow now produces real arity-1 and arity-2 expressions, and the tests verify they match Tier 1 evaluation.
     - **Resolution**: Completed.
+    - **Planned resolution**: None.
+
+15. **No multi-threaded C test for Tier 1** (2026-07-06) ✅
+    - **Description**: `SMC_THREAD_SAFE=ON` compiles the runtime with a global mutex, but there is no C test that spawns multiple threads and exercises `smc_eval_*` or per-thread `smc_context_t*` instances concurrently.
+    - **Impact**: Thread-safety regressions in the global context could go undetected.
+    - **Resolution**: Added `tests/c/test_thread_safety.c` and wired it into CMake when `SMC_THREAD_SAFE=ON`.
+    - **Planned resolution**: None.
+
+16. **Sanitizer presets incomplete** (2026-07-06) 🔄
+    - **Description**: `SMC_SANITIZE=ON` only enables AddressSanitizer and UBSan. There is no CMake option for ThreadSanitizer or MemorySanitizer.
+    - **Impact**: Data races and uninitialized-memory issues are not caught by the current CMake presets.
+    - **Resolution**: Added `SMC_SANITIZE_THREAD` and `SMC_SANITIZE_MEMORY` CMake options. TSan build passes; MSan not exercised because the host compiler is GCC.
+    - **Planned resolution**: Verify MSan with Clang in CI.
+
+17. **No domain-facing renderer example** (2026-07-06) ✅
+    - **Description**: `examples/c/renderer_hotpath.c` demonstrates a single scalar hot-path expression, but the maturity plan calls for a realistic renderer example with expression keys such as `dot(light_dir, normal)` and Blinn-Phong terms.
+    - **Impact**: New C users do not see a realistic game/simulation integration pattern.
+    - **Resolution**: Added `examples/c/renderer_ray.c` that uses generated arity-1/arity-2 expressions in a per-pixel loop, prints timing, checksum, and stats.
+    - **Planned resolution**: None.
+
+18. **pkg-config does not list generated-table library** (2026-07-06) ✅
+    - **Description**: `smc.pc.in` only lists `-lsmc`. Downstream users who want Tier 2 must also link `-lsmc_generated`.
+    - **Impact**: Users following `pkg-config --libs smc` will get unresolved Tier 2 symbols.
+    - **Resolution**: Added `smc-generated.pc.in` with `-lsmc_generated -lsmc` and install both `.pc` files.
+    - **Planned resolution**: None.
+
+19. **Generated-code cross-check harness is minimal** (2026-07-06) 🔄
+    - **Description**: The Lisp generator test checks one argumentized expression. The plan calls for a cross-check harness that evaluates many generated expressions with random arguments in both C and Lisp.
+    - **Impact**: Generator correctness is not stress-tested across a broad expression/argument matrix.
+    - **Resolution**: Extended `tests/lisp/test-generator.lisp` with a cross-check over three argumentized expressions and multiple bindings.
+    - **Planned resolution**: Add a C-side random cross-check test and broaden the Lisp expression list.
+
+20. **Python binding lacks stats example/test** (2026-07-06) ✅
+    - **Description**: `python/smc/__init__.py` exposes `get_stats()` and `reset_stats()`, but there is no Python test or example that exercises them.
+    - **Impact**: The Python stats API could break without detection.
+    - **Resolution**: Added `test_stats()` to `tests/python/test_smc.py` and mentioned stats in the Python module docstring.
     - **Planned resolution**: None.
 
 ## Documentation

@@ -126,6 +126,45 @@ int main(void) {
         if (cross_check_expression(id, source, arity) != 0) {
             return 1;
         }
+
+        /* For argumentized expressions, also test a second binding set to
+         * ensure the generated code is not hard-coded to the warm-cache values. */
+        if (arity > 0) {
+            double args2[2] = {1.5, 2.5};
+            double actual2 = 0.0;
+            rc = smc_call_double((smc_expr_id_t)id,
+                                 args2, arity, &actual2);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: second smc_call_double(%d) returned %d\n", id, rc);
+                return 1;
+            }
+            smc_clear_variables();
+            if (arity >= 1) {
+                rc = smc_set_variable_double("x", args2[0]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(x) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            if (arity >= 2) {
+                rc = smc_set_variable_double("y", args2[1]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(y) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            double expected2 = 0.0;
+            rc = smc_eval_double(source, &expected2);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: second smc_eval_double(%s) returned %d\n", source, rc);
+                return 1;
+            }
+            if (fabs(actual2 - expected2) > 1e-9) {
+                fprintf(stderr, "FAIL: id=%d source=%s actual2=%g expected2=%g\n",
+                        id, source, actual2, expected2);
+                return 1;
+            }
+        }
     }
 
     /* Verify invalid ID returns SMC_ERR_NOT_FOUND. */

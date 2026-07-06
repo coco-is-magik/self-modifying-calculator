@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: smc-generated
+Description: Self-Modifying Calculator — generated dispatch table for Tier 2 hot path
+Version: @PROJECT_VERSION@
+Requires: smc
+Libs: -L${libdir} -lsmc_generated -lsmc
+Libs.private: -lm
+Cflags: -I${includedir}

@@ -147,6 +147,47 @@ def test_generated_table_loads_when_present() -> None:
     assert smc.expr_count() >= 0
 
 
+def test_stats() -> None:
+    """The observability API must return a snapshot and reset to zero."""
+    smc.reset_stats()
+    stats = smc.get_stats()
+    assert stats.total_calls == 0
+    assert stats.generated_hits == 0
+    assert stats.fallback_evals == 0
+    assert stats.last_error_code == 0
+
+    # Trigger a Tier 1 parse error and a Tier 2 call (if a table is present).
+    try:
+        smc.eval("1 + (2 * 3) + )")
+    except smc.SMCError as e:
+        parse_error_code = e.code
+        parse_error_message = e.message
+    else:
+        raise AssertionError("expected SMCError for malformed expression")
+
+    assert parse_error_code != 0
+    assert "unexpected" in parse_error_message.lower() or "expected" in parse_error_message.lower() or ")" in parse_error_message
+
+    count = smc.expr_count()
+    if count > 0:
+        try:
+            smc.call(1)
+        except smc.SMCError:
+            pass
+
+    stats = smc.get_stats()
+    assert stats.total_calls >= 0
+    assert stats.parse_errors >= 1
+    if count > 0:
+        assert stats.total_calls >= 1
+
+    smc.reset_stats()
+    stats = smc.get_stats()
+    assert stats.total_calls == 0
+    assert stats.invalid_calls == 0
+    assert stats.parse_errors == 0
+
+
 def main() -> int:
     tests = [
         test_global_eval,
@@ -160,6 +201,7 @@ def main() -> int:
         test_all_public_names_importable,
         test_ctypes_types_imported,
         test_generated_table_loads_when_present,
+        test_stats,
     ]
     for test in tests:
         try:

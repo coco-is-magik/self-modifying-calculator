@@ -182,10 +182,10 @@ SMC has a working embeddable scaffold from **C** and **Python**, but the product
 | Milestone | Status | Description |
 |-----------|--------|-------------|
 | **Milestone 1** | ✅ Complete | Stable C ABI v1, standalone stub runtime, Python `ctypes` binding, and a C generator |
-| **Milestone 2** | 🔄 In Progress | Production generated-code API (`smc_call_*`) works for ground expressions and argumentized expressions when the cache is warmed correctly; the default build flow still emits mostly ground expressions |
-| **Milestone 3** | 🔄 In Progress | CMake package, `pyproject.toml`, integration guide, and game/simulation benchmarks exist but need hardening |
+| **Milestone 2** | ✅ Complete | Production generated-code API (`smc_call_*`) works for ground and argumentized expressions; the default build flow emits arity-1 and arity-2 expressions |
+| **Milestone 3** | 🔄 In Progress | CMake package, `pyproject.toml`, integration guide, and game/simulation benchmarks exist; remaining work is MSan verification, a broad generated-code cross-check harness, and macOS/Windows install testing |
 
-> **Note**: The C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) tracks the remaining work. The most important current gaps are: making argumentized expressions appear in the default generated output, hardening the generated-runtime fallback error model, and expanding the C-first correctness suite.
+> **Note**: The C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) tracks the remaining work. The most important current gaps are: verifying MSan with Clang, extending the generated-code cross-check harness, and documenting macOS/Windows build steps.
 
 ### Architecture
 
@@ -290,9 +290,12 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embed
 - The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, unary `+`/`-`, and variable binding.
 - Cache persistence and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
 - The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
-- The generated-code path supports scalar expressions with free variables **when the cache is warmed with variable bindings**. The default `scripts/generate-c-source.lisp` warm-cache currently emits mostly ground expressions; argumentized expressions are not yet produced by the normal documented build flow.
-- The generated-runtime fallback returns `SMC_ERR_NOT_IMPL` for all Tier 2 calls when no generated table is linked; it does not yet distinguish "no generated table," "bad ID," and "wrong arity."
+- The generated-code path supports scalar expressions with free variables. The default `scripts/generate-c-source.lisp` warm-cache now includes argumentized expressions such as `x^2 + y` and `x^2 + 5*x + 6`.
+- The generated-runtime fallback returns `SMC_ERR_INVALID` for null output and `SMC_ERR_NOT_IMPL` only when no generated table is linked; the generated dispatch table itself returns `SMC_ERR_NOT_FOUND` and `SMC_ERR_ARITY`.
 - Vector/matrix return values are not yet supported in generated C.
+- MSan has a CMake option but has not been exercised on the host compiler (GCC); verify with Clang.
+- The generated-code cross-check harness covers a handful of argumentized expressions; broaden it to many random combinations.
+- macOS/Windows install steps are not yet documented.
 
 > **Current status and next steps**: See [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) and [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md).
 
