@@ -85,6 +85,9 @@ done
 
 cd "$PROJECT_DIR" || exit 1
 
+# Ensure SBCL can find its core file
+export SBCL_HOME="${SBCL_HOME:-/usr/lib64/sbcl}"
+
 echo "[BENCH] Starting benchmark suite..." >&2
 echo "[BENCH] Level: $(echo $LEVEL | tr -d ':')  Trials: $TRIALS" >&2
 echo "[BENCH] Output: $OUTFILE" >&2

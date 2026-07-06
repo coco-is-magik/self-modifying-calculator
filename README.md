@@ -343,9 +343,9 @@ cd self-modifying-calculator
 # Using the run-calculator.sh wrapper:
 ./scripts/run-calculator.sh "2+3*4"
 
-# Or invoke directly with ASDF:
-cd /bigdisk/programming/self-modifying-calculator
-sbcl --noinform \
+# Or invoke directly with ASDF from the project root:
+cd /path/to/self-modifying-calculator
+SBCL_HOME=/usr/lib64/sbcl sbcl --noinform \
   --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
   --eval "(asdf:load-system :self-modifying-calculator)" \
   --eval "(smc:main '(\"2+3*4\"))" \

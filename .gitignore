@@ -30,6 +30,7 @@ __pycache__/
 python/*.egg-info/
 python/build/
 python/dist/
+python/README.md
 
 # Generated C source (kept out of repo; produced by scripts/generate-c-source.lisp)
 smc_generated.c
@@ -39,3 +40,4 @@ smc_generated.h
 .cline/
 .clineignore
 .agents/
+.venv
