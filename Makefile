@@ -22,6 +22,7 @@ help:
 	@echo "  make calc EXPR=<expr> — Evaluate an expression"
 	@echo "  make generate   — Generate C source from the current SMC cache"
 	@echo "  make build-c    — Configure and build C libraries + tests"
+	@echo "  make build-c-sanitize — Build C libraries with ASan/UBSan"
 	@echo "  make clean      — Remove build artifacts"
 
 test:
@@ -71,7 +72,11 @@ build-c: generate
 	cmake -B build -S . -DSMC_GENERATED_SOURCE=build/smc_generated.c
 	cmake --build build
 
+build-c-sanitize: generate
+	cmake -B build-sanitize -S . -DSMC_GENERATED_SOURCE=build/smc_generated.c -DSMC_SANITIZE=ON
+	cmake --build build-sanitize
+
 clean:
-	rm -rf build/
+	rm -rf build/ build-sanitize/
 	rm -f cache/generated/*.lisp
 	find . -name '*.fasl' -delete

@@ -18,6 +18,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef SMC_THREAD_SAFE
+#include <pthread.h>
+static pthread_mutex_t g_global_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define SMC_LOCK_GLOBAL()   pthread_mutex_lock(&g_global_mutex)
+#define SMC_UNLOCK_GLOBAL() pthread_mutex_unlock(&g_global_mutex)
+#else
+#define SMC_LOCK_GLOBAL()
+#define SMC_UNLOCK_GLOBAL()
+#endif
+
 /* (Error codes are defined in smc.h and used directly.) */
 
 /* -------------------------------------------------------------------------- */
@@ -143,7 +153,9 @@ static int           g_initialized    = 0;
 /* -------------------------------------------------------------------------- */
 
 int smc_init(void) {
+    SMC_LOCK_GLOBAL();
     if (g_initialized) {
+        SMC_UNLOCK_GLOBAL();
         return SMC_OK;
     }
 
@@ -157,6 +169,7 @@ int smc_init(void) {
             smc_set_errorf(SMC_ERR_ABI,
                            "generated ABI version %d does not match runtime ABI version %d",
                            generated_abi, SMC_ABI_VERSION);
+            SMC_UNLOCK_GLOBAL();
             return SMC_ERR_ABI;
         }
     }
@@ -166,12 +179,15 @@ int smc_init(void) {
     g_global_context.initialized = 1;
     smc_variable_table_init(&g_global_context.variables);
     smc_set_error(SMC_OK, NULL);
+    SMC_UNLOCK_GLOBAL();
     return SMC_OK;
 }
 
 int smc_shutdown(void) {
+    SMC_LOCK_GLOBAL();
     g_initialized = 0;
     g_global_context.initialized = 0;
+    SMC_UNLOCK_GLOBAL();
     return SMC_OK;
 }
 
@@ -199,19 +215,26 @@ void smc_context_destroy(smc_context_t *ctx) {
 /* -------------------------------------------------------------------------- */
 
 int smc_set_optimization_level(int level) {
+    SMC_LOCK_GLOBAL();
     if (!g_initialized) {
         smc_set_error(SMC_ERR_INIT, "library not initialized");
+        SMC_UNLOCK_GLOBAL();
         return SMC_ERR_INIT;
     }
     g_global_context.level = (level < 1) ? 1 : (level > 3 ? 3 : level);
+    SMC_UNLOCK_GLOBAL();
     return SMC_OK;
 }
 
 int smc_get_optimization_level(void) {
+    SMC_LOCK_GLOBAL();
     if (!g_initialized) {
+        SMC_UNLOCK_GLOBAL();
         return 0;
     }
-    return g_global_context.level;
+    int level = g_global_context.level;
+    SMC_UNLOCK_GLOBAL();
+    return level;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -475,7 +498,10 @@ static int smc_eval_double_impl(smc_context_t *ctx, const char *expr, double *ou
 }
 
 int smc_eval_double(const char *expr, double *out) {
-    return smc_eval_double_impl(&g_global_context, expr, out);
+    SMC_LOCK_GLOBAL();
+    int rc = smc_eval_double_impl(&g_global_context, expr, out);
+    SMC_UNLOCK_GLOBAL();
+    return rc;
 }
 
 int smc_eval_double_with(smc_context_t *ctx, const char *expr, double *out) {
@@ -591,11 +617,15 @@ __attribute__((weak)) const char *smc_expr_source(smc_expr_id_t id) {
 /* -------------------------------------------------------------------------- */
 
 int smc_set_variable_double(const char *name, double value) {
+    SMC_LOCK_GLOBAL();
     if (!g_initialized) {
         smc_set_error(SMC_ERR_INIT, "library not initialized");
+        SMC_UNLOCK_GLOBAL();
         return SMC_ERR_INIT;
     }
-    return smc_variable_table_set(&g_global_context.variables, name, value);
+    int rc = smc_variable_table_set(&g_global_context.variables, name, value);
+    SMC_UNLOCK_GLOBAL();
+    return rc;
 }
 
 int smc_set_variable_double_with(smc_context_t *ctx, const char *name, double value) {
@@ -607,11 +637,14 @@ int smc_set_variable_double_with(smc_context_t *ctx, const char *name, double va
 }
 
 int smc_clear_variables(void) {
+    SMC_LOCK_GLOBAL();
     if (!g_initialized) {
         smc_set_error(SMC_ERR_INIT, "library not initialized");
+        SMC_UNLOCK_GLOBAL();
         return SMC_ERR_INIT;
     }
     smc_variable_table_clear(&g_global_context.variables);
+    SMC_UNLOCK_GLOBAL();
     return SMC_OK;
 }
 

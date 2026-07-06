@@ -239,6 +239,53 @@ endif()
 if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)
     add_executable(benchmark_generated tests/benchmarks/benchmark_generated.c)
     smc_link_executable(benchmark_generated)
+
+    add_executable(benchmark_dispatch_overhead tests/benchmarks/benchmark_dispatch_overhead.c)
+    smc_link_executable(benchmark_dispatch_overhead)
+
+    add_executable(benchmark_throughput tests/benchmarks/benchmark_throughput.c)
+    smc_link_executable(benchmark_throughput)
+
+    add_executable(benchmark_binary_size tests/benchmarks/benchmark_binary_size.c)
+    smc_link_executable(benchmark_binary_size)
+
+    add_executable(benchmark_cold_startup tests/benchmarks/benchmark_cold_startup.c)
+    smc_link_executable(benchmark_cold_startup)
+endif()
+
+# ---------------------------------------------------------------------------
+# Fuzz targets (not built by default; enable with SMC_BUILD_FUZZ=ON)
+# ---------------------------------------------------------------------------
+option(SMC_BUILD_FUZZ "Build fuzz targets (requires clang + libFuzzer)" OFF)
+if(SMC_BUILD_FUZZ)
+    if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR "SMC_BUILD_FUZZ requires Clang (for libFuzzer)")
+    endif()
+
+    add_executable(fuzz_parser tests/c/fuzz_parser.c)
+    if(SMC_BUILD_STATIC)
+        target_link_libraries(fuzz_parser PRIVATE smc_static)
+    else()
+        target_link_libraries(fuzz_parser PRIVATE smc_shared)
+    endif()
+    target_compile_options(fuzz_parser PRIVATE -fsanitize=fuzzer,address,undefined)
+    target_link_options(fuzz_parser PRIVATE -fsanitize=fuzzer,address,undefined)
+
+    if(SMC_GENERATED_SOURCE)
+        add_executable(fuzz_generated tests/c/fuzz_generated.c)
+        smc_link_executable(fuzz_generated)
+        target_compile_options(fuzz_generated PRIVATE -fsanitize=fuzzer,address,undefined)
+        target_link_options(fuzz_generated PRIVATE -fsanitize=fuzzer,address,undefined)
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Sanitizer presets (not built by default; enable with SMC_SANITIZE=ON)
+# ---------------------------------------------------------------------------
+option(SMC_SANITIZE "Build with AddressSanitizer and UBSan" OFF)
+if(SMC_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
 endif()
 
 # ---------------------------------------------------------------------------
