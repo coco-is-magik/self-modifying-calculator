@@ -443,3 +443,24 @@ The benchmark methodology had become a source of noisy, hard-to-interpret number
 
 **Next Steps**:
 - None for this item; preallocated storage complete
+
+---
+
+## Session 10 — Memory Budget Enforcement (v2.1) ✅
+
+**Date**: 2026-07-09
+
+**Completed**:
+- Added memory budget validation in `smc_artifact_table_init`:
+  - If `memory_budget_bytes` is non-zero and buffer size exceeds it, return `SMC_ERR_CAPACITY`
+- Added tests:
+  - `test_memory_budget_enforcement()` - configures with tiny budget, expects `SMC_ERR_CAPACITY`
+  - `test_memory_budget_respected()` - configures with adequate budget, expects success
+- All 15 C tests and 14 Python tests pass
+
+**Rationale**: The preallocation change in Session 9 omitted the budget check. Users who specify a memory budget should get rejection if the required buffer exceeds it.
+
+**Current State**:
+- Memory budget enforcement restored and tested
+- Budget check happens before any allocation
+- No memory leaks on rejection (early return with no side effects)

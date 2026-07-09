@@ -346,6 +346,52 @@ static int test_preallocated_storage(void) {
     return 0;
 }
 
+/* Test memory budget enforcement - tiny budget should be rejected */
+static int test_memory_budget_enforcement(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    /* Configure with reasonable sizes but tiny budget */
+    smc_artifact_config_t config = {
+        .max_entries = 16,
+        .max_key_size = 32,
+        .max_value_size = 256,
+        .memory_budget_bytes = 10  /* Way too small */
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_EQ(rc, SMC_ERR_CAPACITY, "memory budget rejection");
+    
+    smc_context_destroy(ctx);
+    printf("  test_memory_budget_enforcement: PASS\n");
+    return 0;
+}
+
+/* Test memory budget respected when within limit */
+static int test_memory_budget_respected(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    /* Configure with adequate budget - should succeed */
+    smc_artifact_config_t config = {
+        .max_entries = 16,
+        .max_key_size = 32,
+        .max_value_size = 256,
+        .memory_budget_bytes = 65536  /* 64KB - plenty of room */
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "configure with adequate budget");
+    
+    smc_artifact_stats_t stats;
+    rc = smc_artifact_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "get stats");
+    
+    smc_context_destroy(ctx);
+    printf("  test_memory_budget_respected: PASS\n");
+    return 0;
+}
+
 int main(void) {
     if (smc_init() != SMC_OK) {
         fprintf(stderr, "FAIL: smc_init failed\n");
@@ -369,6 +415,8 @@ int main(void) {
     if (test_updates_counter() != 0) return 1;
     if (test_remove_operation() != 0) return 1;
     if (test_preallocated_storage() != 0) return 1;
+    if (test_memory_budget_enforcement() != 0) return 1;
+    if (test_memory_budget_respected() != 0) return 1;
     
     smc_shutdown();
     printf("All artifact cache tests passed.\n");

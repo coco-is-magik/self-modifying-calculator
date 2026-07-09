@@ -40,6 +40,12 @@ int smc_artifact_table_init(smc_artifact_table_t *table,
     size_t slot_size = sizeof(smc_artifact_entry_t) + max_key_size + max_value_size;
     size_t total_buffer_size = max_entries * slot_size;
     
+    /* Enforce user-provided memory budget if specified */
+    size_t budget = config->memory_budget_bytes;
+    if (budget != 0 && total_buffer_size > budget) {
+        return SMC_ERR_CAPACITY;
+    }
+    
     /* Allocate slots array */
     table->slots = (smc_artifact_slot_t *)calloc(max_entries, sizeof(smc_artifact_slot_t));
     if (!table->slots) {
