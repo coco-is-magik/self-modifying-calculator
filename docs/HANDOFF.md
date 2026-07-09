@@ -478,3 +478,55 @@ The benchmark methodology had become a source of noisy, hard-to-interpret number
 - All 14 C tests pass with extended coverage
 
 **Rationale**: The original cross-check tested only fixed argument bindings. The extended harness ensures generated code correctness across diverse input ranges and validates expression diversity.
+
+---
+
+## Session 12 — Hot-Path Optimization and Diagnostics (v2.2) ✅
+
+**Date**: 2026-07-09
+
+**Completed**:
+- Preallocated dirty-state entries in `src/c/smc_state.h/c`:
+  - Added `smc_state_slot_t` struct and `slots` array to table
+  - Modified `smc_state_table_init()` to allocate single contiguous buffer for all slots
+  - Modified `smc_state_table_check()` to use preallocated slots instead of malloc
+  - No malloc calls in hot path after configuration
+- Added `evictions` counter to `smc_state_stats_t` in `include/smc.h`
+- Updated Python binding `python/smc/__init__.py` with `evictions` field
+- Updated `examples/c/dirty_state_basic.c` to print evictions
+- Created `tests/benchmarks/benchmark_artifact_state.c`:
+  - Measures ns/op for state unchanged/changed
+  - Measures ns/op for artifact lookup hit/miss/update
+- Updated `docs/artifact-cache.md` with:
+  - v2.1 preallocation notes for both caches
+  - State statistics section with evictions counter
+  - Performance considerations section
+  - Clarified that SMC provides primitives, not automatic speedups
+
+**Rationale**: The dirty-state implementation previously called malloc() on every first observation, violating the zero-allocation hot-path goal. Preallocation makes both caches suitable for frame-budgeted renderer loops.
+
+**Allocation Analysis (current state)**:
+- `smc_artifact_configure()`: Single malloc for all slots (once at startup)
+- `smc_state_configure()`: Single malloc for all slots (once at startup)
+- `smc_artifact_store()`: Zero allocation (writes to preallocated slot)
+- `smc_artifact_lookup()`: Zero allocation (reads from slot)
+- `smc_state_changed()`: Zero allocation (reads/writes to preallocated slot)
+
+**Benchmark Results** (typical on this hardware):
+```
+state unchanged:      61.7 ns/op
+state changed:        62.6 ns/op
+artifact lookup hit:  69.4 ns/op
+artifact lookup miss: 47.3 ns/op
+artifact update:      73.6 ns/op
+```
+
+**Current State**:
+- All 14 C tests pass
+- All 14 Python tests pass
+- ASan/UBSan build passes
+- Both caches preallocate all memory at configuration time
+
+**Remaining Known Limitations**:
+- MemorySanitizer verification requires Clang (host compiler is GCC)
+- Eviction behavior depends on hash collisions; no user control over hash function

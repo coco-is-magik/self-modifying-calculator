@@ -2,6 +2,7 @@
  *
  * This file implements a direct-mapped hash table for tracking state
  * changes by opaque binary keys.
+ * v2.1: Uses preallocated fixed-size slots to avoid per-store malloc.
  */
 
 #include "smc_state.h"
@@ -17,20 +18,6 @@ static uint32_t smc_byte_hash(const void *data, size_t size) {
         hash *= 16777619u;
     }
     return hash;
-}
-
-static size_t smc_state_memory_needed(const smc_state_config_t *config) {
-    size_t entries = config->max_entries;
-    if (entries == 0) entries = SMC_STATE_DEFAULT_MAX_ENTRIES;
-    
-    size_t key_size = config->max_key_size;
-    if (key_size == 0) key_size = SMC_STATE_DEFAULT_MAX_KEY_SIZE;
-    
-    size_t state_size = config->max_state_size;
-    if (state_size == 0) state_size = SMC_STATE_DEFAULT_MAX_STATE_SIZE;
-    
-    size_t entry_header = sizeof(smc_state_entry_t);
-    return entries * (sizeof(smc_state_entry_t *) + entry_header + key_size + state_size);
 }
 
 int smc_state_table_init(smc_state_table_t *table,
@@ -49,24 +36,55 @@ int smc_state_table_init(smc_state_table_t *table,
     size_t max_state_size = config->max_state_size;
     if (max_state_size == 0) max_state_size = SMC_STATE_DEFAULT_MAX_STATE_SIZE;
     
-    size_t memory_needed = smc_state_memory_needed(config);
+    /* v2.1: Allocate fixed slots (one per entry) - each slot holds max_key + max_state */
+    size_t slot_size = sizeof(smc_state_entry_t) + max_key_size + max_state_size;
+    size_t total_buffer_size = max_entries * slot_size;
+    
+    /* Enforce user-provided memory budget if specified */
     size_t budget = config->memory_budget_bytes;
-    if (budget != 0 && memory_needed > budget) {
+    if (budget != 0 && total_buffer_size > budget) {
         return SMC_ERR_CAPACITY;
     }
     
+    /* Allocate slots array */
+    table->slots = (smc_state_slot_t *)calloc(max_entries, sizeof(smc_state_slot_t));
+    if (!table->slots) {
+        return SMC_ERR_INIT;
+    }
+    
+    /* Allocate a single buffer for all slots */
+    unsigned char *slot_buffer = (unsigned char *)malloc(total_buffer_size);
+    if (!slot_buffer) {
+        free(table->slots);
+        table->slots = NULL;
+        return SMC_ERR_INIT;
+    }
+    
+    /* Initialize slots to point into the buffer */
+    for (size_t i = 0; i < max_entries; i++) {
+        table->slots[i].data = slot_buffer + i * slot_size;
+        table->slots[i].data_size = slot_size;
+        table->slots[i].occupied = 0;
+    }
+    
+    /* Allocate entry pointer array */
     table->entries = (smc_state_entry_t **)calloc(max_entries, sizeof(smc_state_entry_t *));
     if (!table->entries) {
+        free(slot_buffer);
+        free(table->slots);
+        table->slots = NULL;
         return SMC_ERR_INIT;
     }
     
     table->entry_count = max_entries;
     table->max_key_size = max_key_size;
     table->max_state_size = max_state_size;
-    table->memory_budget = budget != 0 ? budget : memory_needed;
+    table->memory_budget = total_buffer_size;
+    table->use_preallocated = 1; /* v2.1 always uses preallocated fixed slots */
     table->configured = 1;
     table->stats = stats;
     
+    /* Clear stats if provided */
     if (stats) {
         memset(stats, 0, sizeof(*stats));
     }
@@ -77,10 +95,17 @@ int smc_state_table_init(smc_state_table_t *table,
 void smc_state_table_destroy(smc_state_table_t *table) {
     if (!table) return;
     
-    if (table->entries) {
-        for (size_t i = 0; i < table->entry_count; i++) {
-            free(table->entries[i]);
+    /* Free slots buffer if we allocated it */
+    if (table->slots) {
+        if (table->slots[0].data) {
+            free(table->slots[0].data); /* The whole buffer starts at slots[0].data */
         }
+        free(table->slots);
+        table->slots = NULL;
+    }
+    
+    /* Free entry pointer array */
+    if (table->entries) {
         free(table->entries);
         table->entries = NULL;
     }
@@ -91,13 +116,14 @@ void smc_state_table_destroy(smc_state_table_t *table) {
 }
 
 int smc_state_table_check(smc_state_table_t *table,
-                           const void *key, size_t key_size,
-                           const void *state, size_t state_size,
-                           int *out_changed) {
+                          const void *key, size_t key_size,
+                          const void *state, size_t state_size,
+                          int *out_changed) {
     if (!table || !table->configured) {
         return SMC_ERR_INIT;
     }
-    if (!key || key_size == 0 || !state || !out_changed) {
+    /* Note: state can be NULL only if state_size is 0 - allowing zero-size states */
+    if (!key || key_size == 0 || !out_changed) {
         return SMC_ERR_INVALID;
     }
     if (key_size > table->max_key_size) {
@@ -122,7 +148,7 @@ int smc_state_table_check(smc_state_table_t *table,
         /* Key exists - compare state */
         void *stored_state = entry->key_data + key_size;
         if (entry->state_size == state_size &&
-            memcmp(stored_state, state, state_size) == 0) {
+            (state_size == 0 || memcmp(stored_state, state, state_size) == 0)) {
             /* Unchanged */
             *out_changed = 0;
             if (table->stats) {
@@ -138,20 +164,13 @@ int smc_state_table_check(smc_state_table_t *table,
             table->stats->stores++;
         }
         
-        /* Reallocate if state size differs */
-        size_t entry_size = sizeof(smc_state_entry_t) + key_size + state_size;
-        if (entry->state_size != state_size) {
-            free(entry);
-            entry = (smc_state_entry_t *)malloc(entry_size);
-            if (!entry) return SMC_ERR_INIT;
-        }
-        
         entry->hash = hash;
         entry->key_size = key_size;
         entry->state_size = state_size;
         memcpy(entry->key_data, key, key_size);
-        memcpy(entry->key_data + key_size, state, state_size);
-        table->entries[index] = entry;
+        if (state && state_size > 0) {
+            memcpy(entry->key_data + key_size, state, state_size);
+        }
         return SMC_OK;
     }
     
@@ -162,22 +181,22 @@ int smc_state_table_check(smc_state_table_t *table,
         table->stats->stores++;
     }
     
-    size_t entry_size = sizeof(smc_state_entry_t) + key_size + state_size;
-    smc_state_entry_t *new_entry = (smc_state_entry_t *)malloc(entry_size);
-    if (!new_entry) {
-        return SMC_ERR_INIT;
+    /* v2.1: Use preallocated slot */
+    smc_state_entry_t *new_entry = (smc_state_entry_t *)table->slots[index].data;
+    
+    /* Track eviction on collision */
+    if (entry && table->stats) {
+        table->stats->evictions++;
     }
     
     new_entry->hash = hash;
     new_entry->key_size = key_size;
     new_entry->state_size = state_size;
     memcpy(new_entry->key_data, key, key_size);
-    memcpy(new_entry->key_data + key_size, state, state_size);
-    
-    /* Free old entry on collision */
-    if (entry) {
-        free(entry); /* Direct-mapped: evict on collision */
+    if (state && state_size > 0) {
+        memcpy(new_entry->key_data + key_size, state, state_size);
     }
+    table->slots[index].occupied = 1;
     
     table->entries[index] = new_entry;
     return SMC_OK;
@@ -188,11 +207,10 @@ int smc_state_table_clear(smc_state_table_t *table) {
         return SMC_ERR_INIT;
     }
     
+    /* v2.1: Clear all slot occupancy flags */
     for (size_t i = 0; i < table->entry_count; i++) {
-        if (table->entries[i]) {
-            free(table->entries[i]);
-            table->entries[i] = NULL;
-        }
+        table->slots[i].occupied = 0;
+        table->entries[i] = NULL;
     }
     
     return SMC_OK;

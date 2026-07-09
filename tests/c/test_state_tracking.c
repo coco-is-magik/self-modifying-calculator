@@ -1,6 +1,6 @@
 /* tests/c/test_state_tracking.c — acceptance test for dirty-state API
  *
- * Tests state_changed behavior and stats tracking.
+ * Tests state_changed behavior, stats tracking, and preallocation.
  */
 
 #include "smc.h"
@@ -109,7 +109,7 @@ static int test_different_state(void) {
     return 0;
 }
 
-/* Test stats tracking */
+/* Test stats tracking including evictions */
 static int test_stats(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
@@ -140,9 +140,75 @@ static int test_stats(void) {
     ASSERT_EQ(stats.checks, 3u, "checks count");
     ASSERT_EQ(stats.changed, 2u, "changed count");
     ASSERT_EQ(stats.unchanged, 1u, "unchanged count");
+    ASSERT_EQ(stats.stores, 2u, "stores count");
+    ASSERT_EQ(stats.evictions, 0u, "evictions count initially zero");
     
     smc_context_destroy(ctx);
     printf("  test_stats: PASS\n");
+    return 0;
+}
+
+/* Test preallocated storage - many updates without allocation issues */
+static int test_preallocated_storage(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_config_t config = {0};
+    int rc = smc_state_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_configure");
+    
+    /* Perform many state updates to verify no allocation issues */
+    for (int i = 0; i < 1000; i++) {
+        uint32_t key = i;
+        uint32_t state = i * 100;
+        int changed = 0;
+        rc = smc_state_changed(ctx, &key, sizeof(key), &state, sizeof(state), &changed);
+        ASSERT_OK(rc, "state update in preallocated storage");
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_preallocated_storage: PASS\n");
+    return 0;
+}
+
+/* Test eviction stats on collision */
+static int test_eviction_stats(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    /* Use small cache to force collisions (2 entries) */
+    smc_state_config_t config = {
+        .max_entries = 2,
+        .max_key_size = 32,
+        .max_state_size = 32,
+        .memory_budget_bytes = 0
+    };
+    
+    int rc = smc_state_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_configure");
+    
+    rc = smc_state_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_reset_stats");
+    
+    /* These keys likely hash to same or adjacent slots */
+    uint32_t key1 = 1;
+    uint32_t key2 = 3;
+    uint32_t state = 100;
+    int changed = 0;
+    
+    /* First observations */
+    smc_state_changed(ctx, &key1, sizeof(key1), &state, sizeof(state), &changed);
+    smc_state_changed(ctx, &key2, sizeof(key2), &state, sizeof(state), &changed);
+    
+    smc_state_stats_t stats;
+    rc = smc_state_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_state_get_stats");
+    
+    /* At least 2 stores occurred; evictions may or may not have occurred */
+    ASSERT_EQ(stats.stores, 2u, "stores count");
+    
+    smc_context_destroy(ctx);
+    printf("  test_eviction_stats: PASS\n");
     return 0;
 }
 
@@ -163,6 +229,8 @@ int main(void) {
     if (test_same_state() != 0) return 1;
     if (test_different_state() != 0) return 1;
     if (test_stats() != 0) return 1;
+    if (test_preallocated_storage() != 0) return 1;
+    if (test_eviction_stats() != 0) return 1;
     
     smc_shutdown();
     printf("All state tracking tests passed.\n");

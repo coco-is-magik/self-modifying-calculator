@@ -141,6 +141,7 @@ class _smc_state_stats_t(ctypes.Structure):
         ("changed", c_uint64),
         ("unchanged", c_uint64),
         ("stores", c_uint64),
+        ("evictions", c_uint64),
         ("bytes_compared", c_uint64),
     ]
 
@@ -470,6 +471,7 @@ class SMCStateStats:
         self.changed = raw.changed
         self.unchanged = raw.unchanged
         self.stores = raw.stores
+        self.evictions = raw.evictions
         self.bytes_compared = raw.bytes_compared
 
     def __repr__(self) -> str:

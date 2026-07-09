@@ -21,6 +21,13 @@ typedef struct {
     /* Followed by state bytes: key_data[key_size] ... state */
 } smc_state_entry_t;
 
+/* Fixed-size slot for preallocated storage (v2.1) */
+typedef struct {
+    unsigned char *data;     /* Pointer to slot buffer */
+    size_t data_size;      /* Size of slot buffer */
+    int    occupied;         /* Is this slot in use? */
+} smc_state_slot_t;
+
 /* Dirty-state table */
 typedef struct {
     smc_state_entry_t **entries;   /* Array of entry pointers */
@@ -29,7 +36,11 @@ typedef struct {
     size_t max_state_size;        /* Maximum allowed state size */
     size_t memory_budget;         /* Total bytes allocated */
     int    configured;            /* Has configure been called? */
-    smc_state_stats_t *stats; /* Pointer to stats (in context) */
+    smc_state_stats_t *stats;     /* Pointer to stats (in context) */
+    
+    /* v2.1 preallocated storage - fixed slots */
+    smc_state_slot_t *slots;      /* Array of fixed-size slots */
+    int    use_preallocated;       /* 1 = use preallocated slots, 0 = malloc each */
 } smc_state_table_t;
 
 /* Initialize a state table with the given configuration. */
@@ -42,9 +53,9 @@ void smc_state_table_destroy(smc_state_table_t *table);
 
 /* Check if state changed. Returns SMC_OK, sets *out_changed. */
 int smc_state_table_check(smc_state_table_t *table,
-                           const void *key, size_t key_size,
-                           const void *state, size_t state_size,
-                           int *out_changed);
+                          const void *key, size_t key_size,
+                          const void *state, size_t state_size,
+                          int *out_changed);
 
 /* Clear all entries. */
 int smc_state_table_clear(smc_state_table_t *table);

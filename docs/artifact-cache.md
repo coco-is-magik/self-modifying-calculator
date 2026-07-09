@@ -35,7 +35,7 @@ int rc = smc_artifact_configure(ctx, &config);
 
 Configuration must be called once per context before any artifact operations.
 
-**Note (v2.0)**: Entry memory is allocated on each `smc_artifact_store` call using `malloc`. This is acceptable for the MVP but may cause allocation churn in hot paths. A future version (v2.1) will preallocate fixed slots for deterministic performance.
+**Note (v2.1)**: All memory is allocated at configuration time. Each entry uses a preallocated slot from a single contiguous buffer. No heap allocation occurs during `smc_artifact_store` or `smc_artifact_lookup` operations.
 
 ### 2.2 Operations
 
@@ -106,7 +106,21 @@ int rc = smc_state_clear(ctx);
 - **Same key, same state**: Returns `changed=0` (no work needed)
 - **Same key, different state**: Returns `changed=1`, updates stored state
 
-This allows the renderer pattern: check once per frame, skip rasterization on unchanged cells.
+**Note (v2.1)**: All memory is allocated at configuration time. Each state entry uses a preallocated slot from a single contiguous buffer. No heap allocation occurs during `smc_state_changed` operations.
+
+### 3.4 State Statistics
+
+```c
+smc_state_stats_t stats;
+smc_state_get_stats(ctx, &stats);
+
+// Fields:
+//   checks, changed, unchanged
+//   stores, evictions
+//   bytes_compared
+```
+
+The `evictions` counter tracks hash collisions that caused an existing entry to be overwritten.
 
 ---
 
@@ -192,3 +206,26 @@ if (features & SMC_FEATURE_ARTIFACT_CACHE) {
 if (features & SMC_FEATURE_STATE_TRACKING) {
     // Dirty-state tracking available
 }
+```
+
+---
+
+## 7. Performance Considerations
+
+### 7.1 Hot-Path Allocation
+
+The artifact and state caches allocate a single contiguous buffer during configuration. After `smc_artifact_configure()` or `smc_state_configure()` returns, no further heap allocation occurs during normal operations. This makes both APIs suitable for frame-budgeted hot paths in renderers and game engines.
+
+### 7.2 Cache Sizing
+
+For best performance:
+- Choose `max_key_size` and `max_value_size` to match your actual data
+- Use `memory_budget_bytes` to limit total cache memory
+- Expect `evictions` under heavy load; tune `max_entries` to reduce collision rate
+
+### 7.3 Measuring Effectiveness
+
+Users must measure hit rate and operation cost in their own applications:
+- Check `smc_artifact_stats_t.hits` vs `lookups`
+- Check `smc_state_stats_t.changed` vs `checks`
+- SMC does not automatically speed up renderers; it provides the primitives for users to build their own optimization layers.

@@ -72,8 +72,8 @@ int main(void) {
     /* Show stats */
     smc_state_stats_t stats;
     smc_state_get_stats(ctx, &stats);
-    printf("\nStats: checks=%llu, changed=%llu, unchanged=%llu\n",
-           stats.checks, stats.changed, stats.unchanged);
+    printf("\nStats: checks=%llu, changed=%llu, unchanged=%llu, evictions=%llu\n",
+           stats.checks, stats.changed, stats.unchanged, stats.evictions);
     printf("Work skipped: %d / %d (%.1f%%)\n", work_skipped, total_checks, 
            100.0 * work_skipped / total_checks);
 

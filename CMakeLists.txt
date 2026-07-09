@@ -326,6 +326,9 @@ if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)
 
     add_executable(benchmark_cold_startup tests/benchmarks/benchmark_cold_startup.c)
     smc_link_executable(benchmark_cold_startup)
+    
+    add_executable(benchmark_artifact_state tests/benchmarks/benchmark_artifact_state.c)
+    smc_link_executable(benchmark_artifact_state)
 endif()
 
 # ---------------------------------------------------------------------------

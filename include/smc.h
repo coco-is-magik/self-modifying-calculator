@@ -219,6 +219,7 @@ typedef struct {
     uint64_t changed;
     uint64_t unchanged;
     uint64_t stores;
+    uint64_t evictions;      /* direct-mapped collisions causing eviction */
     uint64_t bytes_compared;
 } smc_state_stats_t;
 
