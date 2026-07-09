@@ -370,6 +370,19 @@ This benchmarking suite is executed as its own step during development (not part
 
 ---
 
+### Phase 10 — Artifact Cache Subsystem (v2) ✅
+- [x] Add `smc_artifact_*` API to `include/smc.h`: configure, lookup, store, remove, clear
+- [x] Add `smc_state_*` API for dirty-state tracking
+- [x] Implement `src/c/smc_artifact.c` (direct-mapped hash table)
+- [x] Implement `src/c/smc_state.c` (state comparison)
+- [x] Integrate caches into `smc_context_t` lifecycle
+- [x] Add C tests: `test_artifact_cache.c`, `test_state_tracking.c`
+- [x] Add C examples: `artifact_cache_basic.c`, `dirty_state_basic.c`, `glyph_block_cache.c`
+- [x] Update Python binding with artifact and state functions
+- [x] Create `docs/artifact-cache.md` API documentation
+
+---
+
 ## Performance Analysis and Corrective Plan
 
 ### Why Simple Arithmetic Is Currently Slower

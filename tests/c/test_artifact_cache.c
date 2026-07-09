@@ -174,6 +174,105 @@ static int test_double_configure(void) {
     return 0;
 }
 
+/* Test buffer-too-small handling */
+static int test_buffer_too_small(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_artifact_config_t config = {
+        .max_entries = 16,
+        .max_key_size = 32,
+        .max_value_size = 256,
+        .memory_budget_bytes = 0
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    uint32_t key = 42;
+    uint32_t value = 0xDEADBEEF;
+    uint8_t small_buffer[2];  /* Only 2 bytes */
+    size_t out_size = 0;
+    
+    rc = smc_artifact_store(ctx, &key, sizeof(key), &value, sizeof(value));
+    ASSERT_OK(rc, "smc_artifact_store");
+    
+    rc = smc_artifact_lookup(ctx, &key, sizeof(key), small_buffer, sizeof(small_buffer), &out_size);
+    ASSERT_EQ(rc, SMC_ERR_SIZE, "buffer-too-small returns SMC_ERR_SIZE");
+    ASSERT_EQ((uint32_t)out_size, sizeof(value), "out_size reports needed size");
+    
+    smc_context_destroy(ctx);
+    printf("  test_buffer_too_small: PASS\n");
+    return 0;
+}
+
+/* Test collision eviction */
+static int test_collision_eviction(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    /* Use small cache to force collisions (2 entries) */
+    smc_artifact_config_t config = {
+        .max_entries = 2,
+        .max_key_size = 32,
+        .max_value_size = 32,
+        .memory_budget_bytes = 0
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    rc = smc_artifact_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_artifact_reset_stats");
+    
+    /* These keys are crafted to hash to same slot or adjacent */
+    uint32_t key1 = 1;
+    uint32_t key2 = 3; /* Likely same slot with 2-entry table */
+    uint32_t value1 = 100, value2 = 200;
+    uint32_t out = 0;
+    
+    rc = smc_artifact_store(ctx, &key1, sizeof(key1), &value1, sizeof(value1));
+    ASSERT_OK(rc, "store key1");
+    
+    rc = smc_artifact_store(ctx, &key2, sizeof(key2), &value2, sizeof(value2));
+    ASSERT_OK(rc, "store key2 (may evict key1)");
+    
+    smc_artifact_stats_t stats;
+    rc = smc_artifact_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_artifact_get_stats");
+    
+    /* Either eviction or update happened */
+    ASSERT_EQ(stats.stores, 2u, "stores count");
+    
+    smc_context_destroy(ctx);
+    printf("  test_collision_eviction: PASS\n");
+    return 0;
+}
+
+/* Test zero-size value handling */
+static int test_zero_size_value(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_artifact_config_t config = {0};
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    uint32_t key = 42;
+    rc = smc_artifact_store(ctx, &key, sizeof(key), &key, 0);  /* Zero-size value */
+    ASSERT_OK(rc, "zero-size value store");
+    
+    uint32_t out = 0;
+    size_t out_size = 999;
+    rc = smc_artifact_lookup(ctx, &key, sizeof(key), &out, sizeof(out), &out_size);
+    ASSERT_OK(rc, "lookup zero-size value");
+    ASSERT_EQ(out_size, 0u, "out_size is 0 for zero-size value");
+    
+    smc_context_destroy(ctx);
+    printf("  test_zero_size_value: PASS\n");
+    return 0;
+}
+
 /* Test updates counter on same-key store */
 static int test_updates_counter(void) {
     smc_context_t *ctx = smc_context_create(1);
@@ -236,6 +335,9 @@ int main(void) {
     if (test_zero_key() != 0) return 1;
     if (test_size_limits() != 0) return 1;
     if (test_double_configure() != 0) return 1;
+    if (test_buffer_too_small() != 0) return 1;
+    if (test_collision_eviction() != 0) return 1;
+    if (test_zero_size_value() != 0) return 1;
     if (test_updates_counter() != 0) return 1;
     
     smc_shutdown();

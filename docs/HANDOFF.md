@@ -74,7 +74,7 @@
 - Begin Phase 2: Caching Engine
 - Implement `src/core/cache.lisp` with an in-memory hash table for whole-expression and sub-expression results
 - Implement `src/core/matcher.lisp` for tree-isomorphism matching and partial sub-expression replacement
-- Implement a cache-aware evaluator that checks the cache before recursing into sub-trees
+- Implement a cache-aware evaluator that checks the cache before computing
 - Add tests verifying that repeated identical calculations return cached results
 - Ensure cache works correctly with the existing AST/parser/evaluator stack
 - Record all work in this handoff and the changelog
@@ -342,3 +342,51 @@ The benchmark methodology had become a source of noisy, hard-to-interpret number
 - Continue arithmetic optimization (per-operator hash dispatch, selective caching of small nodes, bounded cache sizing).
 - Update `README.md` benchmark results section with the new methodology and latest numbers.
 
+---
+
+## Session 7 — C Artifact Cache Subsystem ✅
+
+**Date**: 2026-07-09
+
+**Completed**:
+- Added `smc_artifact_*` API to `include/smc.h`:
+  - Configuration: `smc_artifact_configure`, `smc_artifact_config_t`
+  - Operations: `smc_artifact_lookup`, `smc_artifact_store`, `smc_artifact_remove`, `smc_artifact_clear`
+  - Statistics: `smc_artifact_get_stats`, `smc_artifact_reset_stats`
+  - Error codes: `SMC_ERR_SIZE`, `SMC_ERR_CAPACITY`
+  - Feature flag: `SMC_FEATURE_ARTIFACT_CACHE`
+- Implemented `src/c/smc_artifact.c` (direct-mapped hash table with FNV-1a 32-bit hashing)
+- Added `smc_state_*` API for dirty-state tracking:
+  - Configuration: `smc_state_configure`, `smc_state_config_t`
+  - Operations: `smc_state_changed`, `smc_state_clear`
+  - Statistics: `smc_state_get_stats`, `smc_state_reset_stats`
+  - Feature flag: `SMC_FEATURE_STATE_TRACKING`
+- Implemented `src/c/smc_state.c` (direct-mapped hash table for state comparison)
+- Integrated both caches into `smc_context_t` lifecycle in `smc_runtime_stub.c`
+- Added C tests: `tests/c/test_artifact_cache.c` (8 tests), `tests/c/test_state_tracking.c` (4 tests)
+- Added C examples: `examples/c/artifact_cache_basic.c`, `examples/c/dirty_state_basic.c`, `examples/c/glyph_block_cache.c`
+- Updated Python binding `python/smc/__init__.py` with artifact and state functions
+- Created `docs/artifact-cache.md` documenting the API and renderer pattern
+- Updated `docs/c-api-maturity-plan.md` with Phase 9 (Artifact Cache Subsystem)
+
+**Rationale**: The SMC v2 goal was to add a general-purpose binary artifact cache and dirty-state tracker for hot-path optimization in C applications. This enables C projects to skip redundant rasterization and computation by caching arbitrary binary artifacts keyed by opaque byte sequences.
+
+**Known Limitations (v2.0)**:
+1. Memory is allocated on each `smc_artifact_store` call using `malloc`. This is acceptable for the MVP but may cause allocation churn in hot paths. v2.1 will preallocate fixed slots.
+2. Buffer-too-small handling returns `out_value_size` correctly, but the caller must provide a buffer large enough.
+3. Eviction is direct-mapped only (not LRU) — simpler but may discard useful entries.
+
+**Current State**:
+- All 16 C tests pass (`ctest --output-on-failure` runs 16 C tests)
+- All examples compile and run correctly
+- Python binding exposes the new APIs
+
+**Blockers / Known Limitations**:
+- None for current scope; v2.1 work will address preallocated storage
+
+**Next Steps** (for Session 8):
+- Add more edge-case tests for collision eviction with different keys
+- Add memory budget enforcement tests
+- Consider preallocated fixed-slot storage for v2.1
+- Run ASan/UBSan verification with `SMC_SANITIZE=ON`
+- Verify Python binding works with new functions

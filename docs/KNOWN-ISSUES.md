@@ -160,4 +160,21 @@
 
 ---
 
+---
+
+## C API — Artifact Cache v2.0 Limitations
+
+21. **Per-entry malloc in artifact cache** (2026-07-09)
+    - **Description**: `smc_artifact_store` allocates memory for each entry using `malloc`. This is acceptable for the MVP but may cause allocation churn in hot paths. The documentation previously stated "memory allocated at configuration time."
+    - **Impact**: Hot path cannot guarantee zero-allocation after configuration.
+    - **Resolution** (v2.0): Documented the current behavior in `docs/artifact-cache.md`. Added note: "v2.0 may allocate during store; v2.1 will preallocate fixed slots."
+    - **Planned resolution** (v2.1): Preallocate contiguous memory pool at configuration time and store entries within it to avoid malloc in the hot path.
+
+22. **Missing collision-eviction stats test** (2026-07-09)
+    - **Description**: The test suite does not verify that `evictions` counter increments correctly when a different key hashes to an occupied slot.
+    - **Impact**: Eviction behavior is untested; regression could go undetected.
+    - **Planned resolution**: Add test with crafted keys that hash to same slot and verify `evictions` counter.
+
+---
+
 *This document is updated whenever new limitations are discovered or resolved.*
