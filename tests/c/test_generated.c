@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define ASSERT_EQ(actual, expected, msg) \
     do { \
@@ -50,15 +51,159 @@
         } \
     } while (0)
 
-/* Cross-check a generated expression against Tier 1.
- * For ground expressions, pass no args. For argumentized expressions,
- * bind variables in the global context and pass matching args.
- *
- * The generator orders variables by left-to-right occurrence, deduplicated.
- * For the default generated set that means:
- *   arity 1: x is the only variable -> args[0] is x
- *   arity 2: x occurs before y      -> args[0] is x, args[1] is y
- */
+/* Verify we have a diverse set of expressions with different arities. */
+static int test_expression_diversity(int count) {
+    int ground_count = 0, unary_count = 0, binary_count = 0;
+    
+    for (int id = 1; id <= count; id++) {
+        size_t arity = smc_expr_arity((smc_expr_id_t)id);
+        if (arity == 0) ground_count++;
+        else if (arity == 1) unary_count++;
+        else if (arity == 2) binary_count++;
+    }
+    
+    if (ground_count == 0) {
+        fprintf(stderr, "FAIL: no ground expressions found\n");
+        return 1;
+    }
+    if (unary_count == 0) {
+        fprintf(stderr, "FAIL: no unary expressions found\n");
+        return 1;
+    }
+    if (binary_count == 0) {
+        fprintf(stderr, "FAIL: no binary expressions found\n");
+        return 1;
+    }
+    
+    printf("  Expression diversity: ground=%d unary=%d binary=%d\n", 
+           ground_count, unary_count, binary_count);
+    return 0;
+}
+
+/* Test edge cases: negative values, large values, and mixed signs. */
+static int test_edge_cases(int count) {
+    for (int id = 1; id <= count; id++) {
+        size_t arity = smc_expr_arity((smc_expr_id_t)id);
+        const char *source = smc_expr_source((smc_expr_id_t)id);
+        
+        if (arity == 0) continue; /* Only test argumentized expressions */
+        
+        /* Test cases: negative, large, and mixed sign values */
+        double test_values[][2] = {
+            {-3.0,  -2.0},   /* Both negative */
+            {-3.0,   2.0},   /* One negative */
+            { 3.0,  -2.0},   /* One negative */
+            {1e6,    1e6},    /* Large values */
+            {-1e6,  -1e6},    /* Large negative values */
+            {0.0,    0.0},    /* Zero values */
+        };
+        
+        for (int t = 0; t < 6; t++) {
+            double actual = 0.0;
+            double args[2] = {test_values[t][0], test_values[t][1]};
+            
+            int rc = smc_call_double((smc_expr_id_t)id,
+                                     args, arity, &actual);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: edge case smc_call_double(%d) returned %d\n", id, rc);
+                return 1;
+            }
+            
+            smc_clear_variables();
+            if (arity >= 1) {
+                rc = smc_set_variable_double("x", args[0]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(x) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            if (arity >= 2) {
+                rc = smc_set_variable_double("y", args[1]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(y) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            
+            double expected = 0.0;
+            rc = smc_eval_double(source, &expected);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: edge case smc_eval_double(%s) returned %d\n", source, rc);
+                return 1;
+            }
+            
+            if (fabs(actual - expected) > 1e-6) {
+                fprintf(stderr, "FAIL: id=%d edge case mismatch: actual=%g expected=%g\n",
+                        id, actual, expected);
+                return 1;
+            }
+        }
+    }
+    
+    printf("  Edge case tests passed\n");
+    return 0;
+}
+
+/* Test random argument values for stress testing. */
+static int test_random_arguments(int count) {
+    const int NUM_RANDOM = 50;
+    srand((unsigned)time(NULL));
+    
+    for (int id = 1; id <= count; id++) {
+        size_t arity = smc_expr_arity((smc_expr_id_t)id);
+        const char *source = smc_expr_source((smc_expr_id_t)id);
+        
+        if (arity == 0) continue; /* Only stress-test argumentized expressions */
+        
+        for (int t = 0; t < NUM_RANDOM; t++) {
+            /* Generate random values in range [-1000, 1000] */
+            double x = ((double)rand() / RAND_MAX) * 2000.0 - 1000.0;
+            double y = ((double)rand() / RAND_MAX) * 2000.0 - 1000.0;
+            double args[2] = {x, y};
+            double actual = 0.0;
+            
+            int rc = smc_call_double((smc_expr_id_t)id, args, arity, &actual);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: random smc_call_double(%d) returned %d\n", id, rc);
+                return 1;
+            }
+            
+            smc_clear_variables();
+            if (arity >= 1) {
+                rc = smc_set_variable_double("x", args[0]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(x) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            if (arity >= 2) {
+                rc = smc_set_variable_double("y", args[1]);
+                if (rc != SMC_OK) {
+                    fprintf(stderr, "FAIL: smc_set_variable_double(y) returned %d\n", rc);
+                    return 1;
+                }
+            }
+            
+            double expected = 0.0;
+            rc = smc_eval_double(source, &expected);
+            if (rc != SMC_OK) {
+                fprintf(stderr, "FAIL: random smc_eval_double(%s) returned %d\n", source, rc);
+                return 1;
+            }
+            
+            if (fabs(actual - expected) > 1e-6) {
+                fprintf(stderr, "FAIL: id=%d random mismatch: actual=%g expected=%g (x=%g y=%g)\n",
+                        id, actual, expected, args[0], args[1]);
+                return 1;
+            }
+        }
+    }
+    
+    printf("  Random stress test passed: %d iterations per argumentized expr\n", NUM_RANDOM);
+    return 0;
+}
+
+/* Cross-check a generated expression against Tier 1. */
 static int cross_check_expression(int id, const char *source, size_t arity) {
     double actual = 0.0;
     double args[2] = {3.2, 2.1};
@@ -110,6 +255,11 @@ int main(void) {
     printf("Generated expressions: %d\n", count);
     if (count <= 0) {
         fprintf(stderr, "FAIL: no generated expressions found\n");
+        return 1;
+    }
+
+    /* Verify expression diversity */
+    if (test_expression_diversity(count) != 0) {
         return 1;
     }
 
@@ -165,6 +315,15 @@ int main(void) {
                 return 1;
             }
         }
+    }
+
+    /* Test edge cases and random values for stress validation */
+    if (test_edge_cases(count) != 0) {
+        return 1;
+    }
+    
+    if (test_random_arguments(count) != 0) {
+        return 1;
     }
 
     /* Verify invalid ID returns SMC_ERR_NOT_FOUND. */

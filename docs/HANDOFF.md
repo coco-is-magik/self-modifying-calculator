@@ -464,3 +464,17 @@ The benchmark methodology had become a source of noisy, hard-to-interpret number
 - Memory budget enforcement restored and tested
 - Budget check happens before any allocation
 - No memory leaks on rejection (early return with no side effects)
+
+---
+
+## Session 11 — Extended Generated-Code Cross-Check Harness ✅
+
+**Date**: 2026-07-09
+
+**Completed**:
+- Added `test_expression_diversity()` - verifies ground/unary/binary expression mix
+- Added `test_edge_cases()` - tests negative values, large values, mixed signs, zero values
+- Added `test_random_arguments()` - stress test with 50 random argument sets per expression (-1000 to 1000)
+- All 14 C tests pass with extended coverage
+
+**Rationale**: The original cross-check tested only fixed argument bindings. The extended harness ensures generated code correctness across diverse input ranges and validates expression diversity.
