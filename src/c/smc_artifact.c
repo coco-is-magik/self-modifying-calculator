@@ -181,8 +181,12 @@ int smc_artifact_table_store(smc_artifact_table_t *table,
                      old_entry->key_size == key_size &&
                      memcmp(old_entry->key_data, key, key_size) == 0);
     
-    if (!is_update && table->stats) {
-        table->stats->updates++;
+    if (table->stats) {
+        if (is_update) {
+            table->stats->updates++;
+        } else {
+            /* New entry or eviction */
+        }
     }
     
     /* Allocate entry: header + key + value */

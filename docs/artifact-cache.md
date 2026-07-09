@@ -33,7 +33,9 @@ smc_artifact_config_t config = {
 int rc = smc_artifact_configure(ctx, &config);
 ```
 
-Configuration must be called once per context before any artifact operations. Memory is allocated at configuration time, not during hot-path operations.
+Configuration must be called once per context before any artifact operations.
+
+**Note (v2.0)**: Entry memory is allocated on each `smc_artifact_store` call using `malloc`. This is acceptable for the MVP but may cause allocation churn in hot paths. A future version (v2.1) will preallocate fixed slots for deterministic performance.
 
 ### 2.2 Operations
 

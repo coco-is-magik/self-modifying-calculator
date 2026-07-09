@@ -174,6 +174,50 @@ static int test_double_configure(void) {
     return 0;
 }
 
+/* Test updates counter on same-key store */
+static int test_updates_counter(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_artifact_config_t config = {
+        .max_entries = 16,
+        .max_key_size = 32,
+        .max_value_size = 256,
+        .memory_budget_bytes = 0
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    rc = smc_artifact_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_artifact_reset_stats");
+    
+    uint32_t key = 1;
+    uint32_t value1 = 100;
+    uint32_t value2 = 200;
+    
+    /* First store - should be a new entry */
+    rc = smc_artifact_store(ctx, &key, sizeof(key), &value1, sizeof(value1));
+    ASSERT_OK(rc, "first store");
+    
+    /* Second store same key - should be an update */
+    rc = smc_artifact_store(ctx, &key, sizeof(key), &value2, sizeof(value2));
+    ASSERT_OK(rc, "second store same key");
+    
+    smc_artifact_stats_t stats;
+    rc = smc_artifact_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_artifact_get_stats");
+    
+    /* Exactly 2 stores, 1 update (same key), 0 evictions */
+    ASSERT_EQ(stats.stores, 2u, "total stores count");
+    ASSERT_EQ(stats.updates, 1u, "updates count (same key replacement)");
+    ASSERT_EQ(stats.evictions, 0u, "evictions count (no collision)");
+    
+    smc_context_destroy(ctx);
+    printf("  test_updates_counter: PASS\n");
+    return 0;
+}
+
 int main(void) {
     if (smc_init() != SMC_OK) {
         fprintf(stderr, "FAIL: smc_init failed\n");
@@ -192,6 +236,7 @@ int main(void) {
     if (test_zero_key() != 0) return 1;
     if (test_size_limits() != 0) return 1;
     if (test_double_configure() != 0) return 1;
+    if (test_updates_counter() != 0) return 1;
     
     smc_shutdown();
     printf("All artifact cache tests passed.\n");
