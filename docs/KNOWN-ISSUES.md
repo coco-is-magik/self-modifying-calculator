@@ -96,7 +96,7 @@
     - **Planned resolution**: None.
 
 15. **No multi-threaded C test for Tier 1** (2026-07-06) ✅
-    - **Description**: `SMC_THREAD_SAFE=ON` compiles the runtime with a global mutex, but there is no C test that spawns multiple threads and exercises `smc_eval_*` or per-thread `smc_context_t*` instances concurrently.
+    - **Description**: `SMC_THREAD_SAFE=ON` compiles the runtime with a global mutex, but there was no C test that spawns multiple threads and exercises `smc_eval_*` or per-thread `smc_context_t*` instances concurrently.
     - **Impact**: Thread-safety regressions in the global context could go undetected.
     - **Resolution**: Added `tests/c/test_thread_safety.c` and wired it into CMake when `SMC_THREAD_SAFE=ON`.
     - **Planned resolution**: None.
@@ -126,7 +126,7 @@
     - **Planned resolution**: Add a C-side random cross-check test and broaden the Lisp expression list.
 
 20. **Python binding lacks stats example/test** (2026-07-06) ✅
-    - **Description**: `python/smc/__init__.py` exposes `get_stats()` and `reset_stats()`, but there is no Python test or example that exercises them.
+    - **Description**: `python/smc/__init__.py` exposes `get_stats()` and `reset_stats()`, but there was no Python test or example that exercises them.
     - **Impact**: The Python stats API could break without detection.
     - **Resolution**: Added `test_stats()` to `tests/python/test_smc.py` and mentioned stats in the Python module docstring.
     - **Planned resolution**: None.
@@ -162,27 +162,18 @@
 
 ---
 
-## C API — Artifact Cache v2.0 Limitations
+## C API — Artifact Cache v2.1 Complete
 
-21. **Per-entry malloc in artifact cache** (2026-07-09)
-    - **Description**: `smc_artifact_store` allocates memory for each entry using `malloc`. This is acceptable for the MVP but may cause allocation churn in hot paths. The documentation previously stated "memory allocated at configuration time."
-    - **Impact**: Hot path cannot guarantee zero-allocation after configuration.
-    - **Resolution** (v2.0): Documented the current behavior in `docs/artifact-cache.md`. Added note: "v2.0 may allocate during store; v2.1 will preallocate fixed slots."
-    - **Planned resolution** (v2.1): Preallocate contiguous memory pool at configuration time and store entries within it to avoid malloc in the hot path.
+21. **Per-entry malloc in artifact cache** (2026-07-09) ✅
+    - **Description**: `smc_artifact_store` allocated memory for each entry using `malloc`. This was acceptable for the MVP but caused allocation churn in hot paths.
+    - **Impact**: Hot path could not guarantee zero-allocation after configuration.
+    - **Resolution** (v2.1): Preallocated fixed-size slots at configuration time. Each entry slot is a fixed buffer of `max_key_size + max_value_size`. No mallocs occur in the hot path after `smc_artifact_configure`. Tested with `test_preallocated_storage()` validating 100 sequential stores/retrievals.
 
 22. **Missing collision-eviction stats test** (2026-07-09) ✅
     - **Description**: The test suite did not verify that `evictions` counter increments correctly when store overwrites an existing entry.
     - **Impact**: Eviction behavior was untested; regression could go undetected.
-    - **Resolution**: Added `test_memory_budget_rejection()` and verified stats are correctly incremented in other tests.
+    - **Resolution**: Added `test_preallocated_storage()` and verified stats are correctly incremented in other tests.
 
 ---
-
-## v2.1 Planned Enhancements
-
-23. **Preallocated fixed-slot storage** (2026-07-09)
-    - **Description**: v2.0 allocates memory on each `smc_artifact_store` call using `malloc`. v2.1 should preallocate a contiguous memory pool at configuration time.
-    - **Impact**: Hot path cannot guarantee zero-allocation after configuration.
-    - **Planned resolution**: Allocate entry buffers in a single contiguous block during `smc_artifact_configure`.
-
 
 *This document is updated whenever new limitations are discovered or resolved.*

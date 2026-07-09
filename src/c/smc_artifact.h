@@ -21,15 +21,26 @@ typedef struct {
     /* Followed by value bytes: key_data[key_size] ... value */
 } smc_artifact_entry_t;
 
+/* Fixed-size slot for preallocated storage (v2.1) */
+typedef struct {
+    unsigned char *data;     /* Pointer to slot buffer */
+    size_t data_size;        /* Size of slot buffer */
+    int    occupied;         /* Is this slot in use? */
+} smc_artifact_slot_t;
+
 /* Artifact cache table */
 typedef struct {
     smc_artifact_entry_t **entries;  /* Array of entry pointers */
     size_t entry_count;              /* Number of slots (max_entries) */
     size_t max_key_size;             /* Maximum allowed key size */
-    size_t max_value_size;             /* Maximum allowed value size */
+    size_t max_value_size;           /* Maximum allowed value size */
     size_t memory_budget;            /* Total bytes allocated */
     int    configured;               /* Has configure been called? */
-    smc_artifact_stats_t *stats; /* Pointer to stats (in context) */
+    smc_artifact_stats_t *stats;     /* Pointer to stats (in context) */
+    
+    /* v2.1 preallocated storage - fixed slots */
+    smc_artifact_slot_t *slots;     /* Array of fixed-size slots */
+    int    use_preallocated;          /* 1 = use preallocated slots, 0 = malloc each */
 } smc_artifact_table_t;
 
 /* Initialize an artifact table with the given configuration.

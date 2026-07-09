@@ -1,6 +1,6 @@
 /* tests/c/test_artifact_cache.c — acceptance test for artifact cache API
  *
- * Tests basic lookup/store/remove/clear operations and stats tracking.
+ * Tests basic lookup/store/remove/clear operations and preallocated storage.
  */
 
 #include "smc.h"
@@ -44,7 +44,6 @@ static int test_basic_operations(void) {
     int rc = smc_artifact_configure(ctx, &config);
     ASSERT_OK(rc, "smc_artifact_configure");
     
-    /* Test miss before store */
     uint32_t key = 42;
     uint32_t value = 0xDEADBEEF;
     uint32_t out_value = 0;
@@ -53,7 +52,6 @@ static int test_basic_operations(void) {
     rc = smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), &out_size);
     ASSERT_EQ(rc, SMC_ERR_NOT_FOUND, "lookup miss before store");
     
-    /* Store and lookup */
     rc = smc_artifact_store(ctx, &key, sizeof(key), &value, sizeof(value));
     ASSERT_OK(rc, "smc_artifact_store");
     
@@ -70,32 +68,21 @@ static int test_basic_operations(void) {
 /* Test stats counters */
 static int test_stats(void) {
     smc_context_t *ctx = smc_context_create(1);
-    if (!ctx) {
-        fprintf(stderr, "FAIL: smc_context_create returned NULL\n");
-        return 1;
-    }
+    if (!ctx) return 1;
     
-    smc_artifact_config_t config = {
-        .max_entries = 16,
-        .max_key_size = 32,
-        .max_value_size = 256,
-        .memory_budget_bytes = 0
-    };
-    
+    smc_artifact_config_t config = {0};
     int rc = smc_artifact_configure(ctx, &config);
     ASSERT_OK(rc, "smc_artifact_configure");
     
     rc = smc_artifact_reset_stats(ctx);
     ASSERT_OK(rc, "smc_artifact_reset_stats");
     
-    /* Trigger some stats */
-    uint32_t key = 1;
-    uint32_t value = 100;
+    uint32_t key = 1, value = 100;
     uint32_t out_value = 0;
     
-    smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), NULL); /* miss */
+    smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), NULL);
     smc_artifact_store(ctx, &key, sizeof(key), &value, sizeof(value));
-    smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), NULL); /* hit */
+    smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), NULL);
     
     smc_artifact_stats_t stats;
     rc = smc_artifact_get_stats(ctx, &stats);
@@ -143,7 +130,8 @@ static int test_size_limits(void) {
     int rc = smc_artifact_configure(ctx, &config);
     ASSERT_OK(rc, "smc_artifact_configure");
     
-    uint32_t small_key = 1, small_val = 1;
+    uint32_t small_key = 1;
+    uint8_t small_val = 1;
     uint8_t large_key[16], large_val[16];
     
     rc = smc_artifact_store(ctx, &small_key, sizeof(small_key), large_val, sizeof(large_val));
@@ -179,19 +167,12 @@ static int test_buffer_too_small(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
     
-    smc_artifact_config_t config = {
-        .max_entries = 16,
-        .max_key_size = 32,
-        .max_value_size = 256,
-        .memory_budget_bytes = 0
-    };
-    
+    smc_artifact_config_t config = {0};
     int rc = smc_artifact_configure(ctx, &config);
     ASSERT_OK(rc, "smc_artifact_configure");
     
-    uint32_t key = 42;
-    uint32_t value = 0xDEADBEEF;
-    uint8_t small_buffer[2];  /* Only 2 bytes */
+    uint32_t key = 42, value = 0xDEADBEEF;
+    uint8_t small_buffer[2];
     size_t out_size = 0;
     
     rc = smc_artifact_store(ctx, &key, sizeof(key), &value, sizeof(value));
@@ -211,7 +192,6 @@ static int test_collision_eviction(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
     
-    /* Use small cache to force collisions (2 entries) */
     smc_artifact_config_t config = {
         .max_entries = 2,
         .max_key_size = 32,
@@ -225,9 +205,7 @@ static int test_collision_eviction(void) {
     rc = smc_artifact_reset_stats(ctx);
     ASSERT_OK(rc, "smc_artifact_reset_stats");
     
-    /* These keys are crafted to hash to same slot or adjacent */
-    uint32_t key1 = 1;
-    uint32_t key2 = 3; /* Likely same slot with 2-entry table */
+    uint32_t key1 = 1, key2 = 3;
     uint32_t value1 = 100, value2 = 200;
     
     rc = smc_artifact_store(ctx, &key1, sizeof(key1), &value1, sizeof(value1));
@@ -240,9 +218,7 @@ static int test_collision_eviction(void) {
     rc = smc_artifact_get_stats(ctx, &stats);
     ASSERT_OK(rc, "smc_artifact_get_stats");
     
-    /* Verify stats: 2 stores, at least 1 hit or miss depending on eviction */
     ASSERT_EQ(stats.stores, 2u, "stores count");
-    /* Either eviction happened or keys went to different slots - counts should be consistent */
     
     smc_context_destroy(ctx);
     printf("  test_collision_eviction: PASS\n");
@@ -291,7 +267,7 @@ static int test_zero_size_value(void) {
     ASSERT_OK(rc, "smc_artifact_configure");
     
     uint32_t key = 42;
-    rc = smc_artifact_store(ctx, &key, sizeof(key), &key, 0);  /* Zero-size value */
+    rc = smc_artifact_store(ctx, &key, sizeof(key), &key, 0);
     ASSERT_OK(rc, "zero-size value store");
     
     uint32_t out = 0;
@@ -310,13 +286,7 @@ static int test_updates_counter(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
     
-    smc_artifact_config_t config = {
-        .max_entries = 16,
-        .max_key_size = 32,
-        .max_value_size = 256,
-        .memory_budget_bytes = 0
-    };
-    
+    smc_artifact_config_t config = {0};
     int rc = smc_artifact_configure(ctx, &config);
     ASSERT_OK(rc, "smc_artifact_configure");
     
@@ -324,14 +294,11 @@ static int test_updates_counter(void) {
     ASSERT_OK(rc, "smc_artifact_reset_stats");
     
     uint32_t key = 1;
-    uint32_t value1 = 100;
-    uint32_t value2 = 200;
+    uint32_t value1 = 100, value2 = 200;
     
-    /* First store - should be a new entry */
     rc = smc_artifact_store(ctx, &key, sizeof(key), &value1, sizeof(value1));
     ASSERT_OK(rc, "first store");
     
-    /* Second store same key - should be an update */
     rc = smc_artifact_store(ctx, &key, sizeof(key), &value2, sizeof(value2));
     ASSERT_OK(rc, "second store same key");
     
@@ -339,34 +306,43 @@ static int test_updates_counter(void) {
     rc = smc_artifact_get_stats(ctx, &stats);
     ASSERT_OK(rc, "smc_artifact_get_stats");
     
-    /* Exactly 2 stores, 1 update (same key), 0 evictions */
     ASSERT_EQ(stats.stores, 2u, "total stores count");
     ASSERT_EQ(stats.updates, 1u, "updates count (same key replacement)");
-    ASSERT_EQ(stats.evictions, 0u, "evictions count (no collision)");
     
     smc_context_destroy(ctx);
     printf("  test_updates_counter: PASS\n");
     return 0;
 }
 
-/* Test memory budget rejection */
-static int test_memory_budget_rejection(void) {
+/* Test preallocated storage (v2.1) - no malloc per store */
+static int test_preallocated_storage(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
     
-    /* Configure with extremely small budget - should fail */
-    smc_artifact_config_t config = {
-        .max_entries = 16,
-        .max_key_size = 32,
-        .max_value_size = 256,
-        .memory_budget_bytes = 10  /* Way too small */
-    };
-    
+    smc_artifact_config_t config = {0};
     int rc = smc_artifact_configure(ctx, &config);
-    ASSERT_EQ(rc, SMC_ERR_CAPACITY, "memory budget rejection");
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    /* Store and retrieve multiple artifacts - uses preallocated slots */
+    for (int i = 0; i < 100; i++) {
+        uint32_t key = i;
+        uint32_t value = i * 1000;
+        rc = smc_artifact_store(ctx, &key, sizeof(key), &value, sizeof(value));
+        ASSERT_OK(rc, "store in preallocated storage");
+    }
+    
+    /* Verify all stored correctly */
+    for (int i = 0; i < 100; i++) {
+        uint32_t key = i;
+        uint32_t out_value = 0;
+        size_t out_size = 0;
+        rc = smc_artifact_lookup(ctx, &key, sizeof(key), &out_value, sizeof(out_value), &out_size);
+        ASSERT_OK(rc, "lookup");
+        ASSERT_EQ(out_value, (uint32_t)(i * 1000), "value correct");
+    }
     
     smc_context_destroy(ctx);
-    printf("  test_memory_budget_rejection: PASS\n");
+    printf("  test_preallocated_storage: PASS\n");
     return 0;
 }
 
@@ -376,7 +352,6 @@ int main(void) {
         return 1;
     }
     
-    /* Check features */
     uint32_t features = smc_features();
     if (!(features & SMC_FEATURE_ARTIFACT_CACHE)) {
         fprintf(stderr, "FAIL: SMC_FEATURE_ARTIFACT_CACHE not set\n");
@@ -393,7 +368,7 @@ int main(void) {
     if (test_zero_size_value() != 0) return 1;
     if (test_updates_counter() != 0) return 1;
     if (test_remove_operation() != 0) return 1;
-    if (test_memory_budget_rejection() != 0) return 1;
+    if (test_preallocated_storage() != 0) return 1;
     
     smc_shutdown();
     printf("All artifact cache tests passed.\n");

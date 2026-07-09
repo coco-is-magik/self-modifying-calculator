@@ -50,3 +50,4 @@ smc_generated.h
 .clineignore
 .agents/
 .venv
+Testing/

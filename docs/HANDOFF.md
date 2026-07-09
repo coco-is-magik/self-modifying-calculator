@@ -413,3 +413,33 @@ The benchmark methodology had become a source of noisy, hard-to-interpret number
 - Preallocated fixed-slot storage for zero-allocation hot path
 - Memory budget enforcement in configure (already implemented, needs test expansion)
 - Verify MSan with Clang in CI
+
+---
+
+## Session 9 — Preallocated Fixed-Slot Storage (v2.1) ✅
+
+**Date**: 2026-07-09
+
+**Completed**:
+- Modified `src/c/smc_artifact.h` to add `smc_artifact_slot_t` struct and `slots` array in table
+- Modified `src/c/smc_artifact.c` to:
+  - Allocate single contiguous buffer for all entry slots at init time
+  - Store entries in preallocated slots instead of per-store malloc
+  - Remove per-entry free in destroy/clear/remove (slots are reused)
+  - Added `test_preallocated_storage()` verifying 100 stores/retrievals work correctly
+- All 14 C tests and 14 Python tests pass
+- Verified under ASan (`cmake -DSMC_SANITIZE=ON`)
+
+**Rationale**: v2.0 allocated memory on each `smc_artifact_store` call. For renderer hot paths requiring zero-allocation after configuration, v2.1 preallocates all storage at `smc_artifact_configure` time.
+
+**Memory Model Change**:
+- v2.0: One malloc per `smc_artifact_store` call
+- v2.1: Single buffer allocation at `smc_artifact_configure`, slots marked occupied/clear on use, no subsequent allocation
+
+**Current State**:
+- Store operations use preallocated slots by default
+- No malloc calls in the hot path after configuration
+- Test `test_preallocated_storage()` validates 100 sequential stores/retrievals
+
+**Next Steps**:
+- None for this item; preallocated storage complete

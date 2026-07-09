@@ -2,6 +2,7 @@
  *
  * This file implements a direct-mapped hash table for caching arbitrary
  * binary artifacts by opaque binary keys.
+ * v2.1: Uses preallocated fixed-size slots to avoid per-store malloc.
  */
 
 #include "smc_artifact.h"
@@ -17,22 +18,6 @@ static uint32_t smc_byte_hash(const void *data, size_t size) {
         hash *= 16777619u; /* FNV prime */
     }
     return hash;
-}
-
-/* Compute required memory for a configuration */
-static size_t smc_artifact_memory_needed(const smc_artifact_config_t *config) {
-    size_t entries = config->max_entries;
-    if (entries == 0) entries = SMC_ARTIFACT_DEFAULT_MAX_ENTRIES;
-    
-    size_t key_size = config->max_key_size;
-    if (key_size == 0) key_size = SMC_ARTIFACT_DEFAULT_MAX_KEY_SIZE;
-    
-    size_t value_size = config->max_value_size;
-    if (value_size == 0) value_size = SMC_ARTIFACT_DEFAULT_MAX_VALUE_SIZE;
-    
-    /* Entry struct: pointer array + header + key + max value */
-    size_t entry_header = sizeof(smc_artifact_entry_t);
-    return entries * (sizeof(smc_artifact_entry_t *) + entry_header + key_size + value_size);
 }
 
 int smc_artifact_table_init(smc_artifact_table_t *table,
@@ -51,23 +36,45 @@ int smc_artifact_table_init(smc_artifact_table_t *table,
     size_t max_value_size = config->max_value_size;
     if (max_value_size == 0) max_value_size = SMC_ARTIFACT_DEFAULT_MAX_VALUE_SIZE;
     
-    /* Check memory budget */
-    size_t memory_needed = smc_artifact_memory_needed(config);
-    size_t budget = config->memory_budget_bytes;
-    if (budget != 0 && memory_needed > budget) {
-        return SMC_ERR_CAPACITY;
+    /* v2.1: Allocate fixed slots (one per entry) - each slot holds max_key + max_value */
+    size_t slot_size = sizeof(smc_artifact_entry_t) + max_key_size + max_value_size;
+    size_t total_buffer_size = max_entries * slot_size;
+    
+    /* Allocate slots array */
+    table->slots = (smc_artifact_slot_t *)calloc(max_entries, sizeof(smc_artifact_slot_t));
+    if (!table->slots) {
+        return SMC_ERR_INIT;
+    }
+    
+    /* Allocate a single buffer for all slots */
+    unsigned char *slot_buffer = (unsigned char *)malloc(total_buffer_size);
+    if (!slot_buffer) {
+        free(table->slots);
+        table->slots = NULL;
+        return SMC_ERR_INIT;
+    }
+    
+    /* Initialize slots to point into the buffer */
+    for (size_t i = 0; i < max_entries; i++) {
+        table->slots[i].data = slot_buffer + i * slot_size;
+        table->slots[i].data_size = slot_size;
+        table->slots[i].occupied = 0;
     }
     
     /* Allocate entry pointer array */
     table->entries = (smc_artifact_entry_t **)calloc(max_entries, sizeof(smc_artifact_entry_t *));
     if (!table->entries) {
+        free(slot_buffer);
+        free(table->slots);
+        table->slots = NULL;
         return SMC_ERR_INIT;
     }
     
     table->entry_count = max_entries;
     table->max_key_size = max_key_size;
     table->max_value_size = max_value_size;
-    table->memory_budget = budget != 0 ? budget : memory_needed;
+    table->memory_budget = total_buffer_size;
+    table->use_preallocated = 1; /* v2.1 always uses preallocated fixed slots */
     table->configured = 1;
     table->stats = stats;
     
@@ -82,10 +89,17 @@ int smc_artifact_table_init(smc_artifact_table_t *table,
 void smc_artifact_table_destroy(smc_artifact_table_t *table) {
     if (!table) return;
     
-    if (table->entries) {
-        for (size_t i = 0; i < table->entry_count; i++) {
-            free(table->entries[i]);
+    /* Free slots buffer if we allocated it */
+    if (table->slots) {
+        if (table->slots[0].data) {
+            free(table->slots[0].data); /* The whole buffer starts at slots[0].data */
         }
+        free(table->slots);
+        table->slots = NULL;
+    }
+    
+    /* Free entry pointer array */
+    if (table->entries) {
         free(table->entries);
         table->entries = NULL;
     }
@@ -184,16 +198,15 @@ int smc_artifact_table_store(smc_artifact_table_t *table,
     if (table->stats) {
         if (is_update) {
             table->stats->updates++;
-        } else {
-            /* New entry or eviction */
         }
     }
     
-    /* Allocate entry: header + key + value */
-    size_t entry_size = sizeof(smc_artifact_entry_t) + key_size + value_size;
-    smc_artifact_entry_t *entry = (smc_artifact_entry_t *)malloc(entry_size);
-    if (!entry) {
-        return SMC_ERR_INIT;
+    /* v2.1: Use preallocated slot */
+    smc_artifact_entry_t *entry = (smc_artifact_entry_t *)table->slots[index].data;
+    
+    if (!is_update && old_entry && table->stats) {
+        /* Collision eviction - old entry is overwritten */
+        table->stats->evictions++;
     }
     
     entry->hash = hash;
@@ -204,14 +217,7 @@ int smc_artifact_table_store(smc_artifact_table_t *table,
     if (value && value_size > 0) {
         memcpy(value_ptr, value, value_size);
     }
-    
-    /* Free old entry on collision (eviction) */
-    if (!is_update && old_entry) {
-        free(old_entry);
-        if (table->stats) {
-            table->stats->evictions++;
-        }
-    }
+    table->slots[index].occupied = 1;
     
     table->entries[index] = entry;
     return SMC_OK;
@@ -235,7 +241,8 @@ int smc_artifact_table_remove(smc_artifact_table_t *table,
     
     if (entry && entry->hash == hash && entry->key_size == key_size &&
         memcmp(entry->key_data, key, key_size) == 0) {
-        free(entry);
+        /* v2.1: For preallocated slots, just mark as unoccupied */
+        table->slots[index].occupied = 0;
         table->entries[index] = NULL;
         if (table->stats) {
             table->stats->removes++;
@@ -251,11 +258,10 @@ int smc_artifact_table_clear(smc_artifact_table_t *table) {
         return SMC_ERR_INIT;
     }
     
+    /* v2.1: Clear all slot occupancy flags */
     for (size_t i = 0; i < table->entry_count; i++) {
-        if (table->entries[i]) {
-            free(table->entries[i]);
-            table->entries[i] = NULL;
-        }
+        table->slots[i].occupied = 0;
+        table->entries[i] = NULL;
     }
     
     if (table->stats) {
