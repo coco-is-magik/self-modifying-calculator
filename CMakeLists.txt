@@ -57,6 +57,8 @@ endif()
 # ---------------------------------------------------------------------------
 set(SMC_RUNTIME_SOURCES
     src/c/smc_runtime_stub.c
+    src/c/smc_artifact.c
+    src/c/smc_state.c
 )
 
 if(SMC_BUILD_STATIC)
@@ -163,6 +165,15 @@ if(SMC_BUILD_EXAMPLES)
     add_executable(renderer_hotpath examples/c/renderer_hotpath.c)
     smc_link_executable(renderer_hotpath)
 
+    add_executable(artifact_cache_basic examples/c/artifact_cache_basic.c)
+    smc_link_executable(artifact_cache_basic)
+
+    add_executable(dirty_state_basic examples/c/dirty_state_basic.c)
+    smc_link_executable(dirty_state_basic)
+
+    add_executable(glyph_block_cache examples/c/glyph_block_cache.c)
+    smc_link_executable(glyph_block_cache)
+
     if(SMC_GENERATED_SOURCE)
         add_executable(renderer_ray examples/c/renderer_ray.c)
         smc_link_executable(renderer_ray)
@@ -219,6 +230,22 @@ if(SMC_BUILD_TESTS)
     else()
         target_link_libraries(test_stub_runtime PRIVATE smc_shared)
     endif()
+    add_executable(test_artifact_cache tests/c/test_artifact_cache.c)
+    if(SMC_BUILD_STATIC)
+        target_link_libraries(test_artifact_cache PRIVATE smc_static)
+    else()
+        target_link_libraries(test_artifact_cache PRIVATE smc_shared)
+    endif()
+    add_test(NAME test_artifact_cache COMMAND test_artifact_cache)
+    
+    add_executable(test_state_tracking tests/c/test_state_tracking.c)
+    if(SMC_BUILD_STATIC)
+        target_link_libraries(test_state_tracking PRIVATE smc_static)
+    else()
+        target_link_libraries(test_state_tracking PRIVATE smc_shared)
+    endif()
+    add_test(NAME test_state_tracking COMMAND test_state_tracking)
+    
     add_test(NAME test_stub_runtime COMMAND test_stub_runtime)
 
     if(SMC_GENERATED_SOURCE)
@@ -266,6 +293,8 @@ if(SMC_BUILD_TESTS)
     # Regression: all C runtime files must compile with strict -pedantic.
     add_library(smc_pedantic_check OBJECT
         src/c/smc_runtime_stub.c
+        src/c/smc_artifact.c
+        src/c/smc_state.c
         src/c/smc_generated_runtime.c
         src/c/smc_runtime_sbcl.c
     )

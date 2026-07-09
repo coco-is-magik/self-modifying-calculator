@@ -30,6 +30,7 @@ from typing import Optional, Union
 __all__ = [
     "abi_version",
     "runtime_kind",
+    "features",
     "eval",
     "eval_float",
     "eval_int",
@@ -44,10 +45,24 @@ __all__ = [
     "cache_load",
     "cache_clear",
     "generate_c_source",
+    "artifact_configure",
+    "artifact_lookup",
+    "artifact_store",
+    "artifact_remove",
+    "artifact_clear",
+    "artifact_get_stats",
+    "artifact_reset_stats",
+    "state_configure",
+    "state_changed",
+    "state_clear",
+    "state_get_stats",
+    "state_reset_stats",
     "get_stats",
     "reset_stats",
     "SMCError",
     "SMCStats",
+    "SMCArtifactStats",
+    "SMCStateStats",
 ]
 
 
@@ -189,6 +204,8 @@ class _LibSMC:
         self._lib.smc_abi_version.argtypes = []
         self._lib.smc_runtime_kind.restype = c_char_p
         self._lib.smc_runtime_kind.argtypes = []
+        self._lib.smc_features.restype = c_uint32
+        self._lib.smc_features.argtypes = []
 
         # Error handling
         self._lib.smc_error_string.restype = c_char_p
@@ -567,6 +584,220 @@ class _smc_stats_t(ctypes.Structure):
         ("invalid_calls", c_uint64),
         ("parse_errors", c_uint64),
         ("last_error_code", c_int),
+    ]
+
+
+# Feature introspection
+def features() -> int:
+    lib = _LibSMC()
+    return int(lib._lib.smc_features())
+
+
+# Artifact cache stats class
+class SMCArtifactStats:
+    """Snapshot of artifact cache observability counters."""
+
+    def __init__(self, raw) -> None:
+        self.lookups = raw.lookups
+        self.hits = raw.hits
+        self.misses = raw.misses
+        self.stores = raw.stores
+        self.updates = raw.updates
+        self.evictions = raw.evictions
+        self.removes = raw.removes
+        self.clears = raw.clears
+        self.bytes_stored = raw.bytes_stored
+        self.bytes_returned = raw.bytes_returned
+
+    def __repr__(self) -> str:
+        return (
+            f"SMCArtifactStats(lookups={self.lookups}, hits={self.hits}, "
+            f"misses={self.misses}, stores={self.stores})"
+        )
+
+
+class _smc_artifact_stats_t(ctypes.Structure):
+    _fields_ = [
+        ("lookups", c_uint64),
+        ("hits", c_uint64),
+        ("misses", c_uint64),
+        ("stores", c_uint64),
+        ("updates", c_uint64),
+        ("evictions", c_uint64),
+        ("removes", c_uint64),
+        ("clears", c_uint64),
+        ("bytes_stored", c_uint64),
+        ("bytes_returned", c_uint64),
+    ]
+
+
+# State tracking stats class
+class SMCStateStats:
+    """Snapshot of dirty-state tracking observability counters."""
+
+    def __init__(self, raw) -> None:
+        self.checks = raw.checks
+        self.changed = raw.changed
+        self.unchanged = raw.unchanged
+        self.stores = raw.stores
+        self.bytes_compared = raw.bytes_compared
+
+    def __repr__(self) -> str:
+        return (
+            f"SMCStateStats(checks={self.checks}, changed={self.changed}, "
+            f"unchanged={self.unchanged})"
+        )
+
+
+class _smc_state_stats_t(ctypes.Structure):
+    _fields_ = [
+        ("checks", c_uint64),
+        ("changed", c_uint64),
+        ("unchanged", c_uint64),
+        ("stores", c_uint64),
+        ("bytes_compared", c_uint64),
+    ]
+
+
+# Artifact cache functions
+def artifact_configure(ctx, config) -> None:
+    """Configure the artifact cache for a context.
+    
+    config is a dict with optional keys: max_entries, max_key_size, 
+    max_value_size, memory_budget_bytes.
+    """
+    lib = _LibSMC()
+    c_config = _smc_artifact_config_t()
+    if config:
+        c_config.max_entries = config.get("max_entries", 0)
+        c_config.max_key_size = config.get("max_key_size", 0)
+        c_config.max_value_size = config.get("max_value_size", 0)
+        c_config.memory_budget_bytes = config.get("memory_budget_bytes", 0)
+    lib._check(lib._lib.smc_artifact_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config)))
+
+
+def artifact_lookup(ctx, key: bytes, value_capacity: int) -> tuple:
+    """Lookup an artifact. Returns (data, size) or raises SMCError."""
+    lib = _LibSMC()
+    out = ctypes.create_string_buffer(value_capacity)
+    out_size = c_uint64()
+    lib._check(lib._lib.smc_artifact_lookup(
+        ctx._ctx if isinstance(ctx, Context) else ctx,
+        key, len(key), ctypes.byref(out), value_capacity, ctypes.byref(out_size)
+    ))
+    return bytes(out[:out_size.value]), out_size.value
+
+
+def artifact_store(ctx, key: bytes, value: bytes) -> None:
+    """Store an artifact with an opaque binary key."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_artifact_store(
+        ctx._ctx if isinstance(ctx, Context) else ctx,
+        key, len(key), value, len(value)
+    ))
+
+
+def artifact_remove(ctx, key: bytes) -> None:
+    """Remove an artifact by key."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_artifact_remove(
+        ctx._ctx if isinstance(ctx, Context) else ctx,
+        key, len(key)
+    ))
+
+
+def artifact_clear(ctx) -> None:
+    """Clear all artifacts in the cache."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_artifact_clear(
+        ctx._ctx if isinstance(ctx, Context) else ctx
+    ))
+
+
+def artifact_get_stats(ctx) -> SMCArtifactStats:
+    """Get artifact cache statistics."""
+    lib = _LibSMC()
+    raw = _smc_artifact_stats_t()
+    lib._check(lib._lib.smc_artifact_get_stats(
+        ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw)
+    ))
+    return SMCArtifactStats(raw)
+
+
+def artifact_reset_stats(ctx) -> None:
+    """Reset artifact cache statistics."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_artifact_reset_stats(
+        ctx._ctx if isinstance(ctx, Context) else ctx
+    ))
+
+
+# State tracking functions
+def state_configure(ctx, config=None) -> None:
+    """Configure the dirty-state tracker for a context."""
+    lib = _LibSMC()
+    c_config = _smc_state_config_t()
+    if config:
+        c_config.max_entries = config.get("max_entries", 0)
+        c_config.max_key_size = config.get("max_key_size", 0)
+        c_config.max_state_size = config.get("max_state_size", 0)
+        c_config.memory_budget_bytes = config.get("memory_budget_bytes", 0)
+    lib._check(lib._lib.smc_state_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config)))
+
+
+def state_changed(ctx, key: bytes, state: bytes) -> bool:
+    """Check if state has changed. Returns True if changed."""
+    lib = _LibSMC()
+    out_changed = c_int()
+    lib._check(lib._lib.smc_state_changed(
+        ctx._ctx if isinstance(ctx, Context) else ctx,
+        key, len(key), state, len(state), ctypes.byref(out_changed)
+    ))
+    return bool(out_changed.value)
+
+
+def state_clear(ctx) -> None:
+    """Clear all tracked state."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_state_clear(
+        ctx._ctx if isinstance(ctx, Context) else ctx
+    ))
+
+
+def state_get_stats(ctx) -> SMCStateStats:
+    """Get dirty-state tracking statistics."""
+    lib = _LibSMC()
+    raw = _smc_state_stats_t()
+    lib._check(lib._lib.smc_state_get_stats(
+        ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw)
+    ))
+    return SMCStateStats(raw)
+
+
+def state_reset_stats(ctx) -> None:
+    """Reset dirty-state tracking statistics."""
+    lib = _LibSMC()
+    lib._check(lib._lib.smc_state_reset_stats(
+        ctx._ctx if isinstance(ctx, Context) else ctx
+    ))
+
+
+# ctypes config structures
+class _smc_artifact_config_t(ctypes.Structure):
+    _fields_ = [
+        ("max_entries", c_size_t),
+        ("max_key_size", c_size_t),
+        ("max_value_size", c_size_t),
+        ("memory_budget_bytes", c_size_t),
+    ]
+
+
+class _smc_state_config_t(ctypes.Structure):
+    _fields_ = [
+        ("max_entries", c_size_t),
+        ("max_key_size", c_size_t),
+        ("max_state_size", c_size_t),
+        ("memory_budget_bytes", c_size_t),
     ]
 
 

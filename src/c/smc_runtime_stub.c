@@ -1,15 +1,15 @@
-/* smc_runtime_stub.c — standalone C runtime for the Self-Modifying Calculator */
-/*
- * This is the default Milestone 1 runtime. It implements the stable C API v1
- * without any dependency on SBCL. It contains a tiny recursive-descent parser
+/* smc_runtime_stub.c — standalone C runtime for the Self-Modifying Calculator
+ *
+ * This is the default runtime. It implements the stable C API without
+ * any dependency on SBCL. It contains a tiny recursive-descent parser
  * and evaluator for scalar arithmetic expressions.
  *
- * The stub is sufficient for demos, tests, and host-language bindings. For full
- * SMC features (hierarchical cache, runtime specialization, source rewriting),
- * build against smc_runtime_sbcl.c instead.
+ * This file also provides the v2 artifact cache and dirty-state APIs.
  */
 
 #include "smc.h"
+#include "smc_artifact.h"
+#include "smc_state.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -27,8 +27,6 @@ static pthread_mutex_t g_global_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define SMC_LOCK_GLOBAL()
 #define SMC_UNLOCK_GLOBAL()
 #endif
-
-/* (Error codes are defined in smc.h and used directly.) */
 
 /* -------------------------------------------------------------------------- */
 /* Error state                                                                */
@@ -109,7 +107,7 @@ static int smc_variable_table_set(struct smc_variable_table *vt,
         }
     }
     if (vt->count >= SMC_MAX_VARIABLES) {
-        return SMC_ERR_EVAL;  /* Reuse a generic error for "table full" */
+        return SMC_ERR_EVAL;
     }
     memcpy(vt->entries[vt->count].name, name, len + 1);
     vt->entries[vt->count].value = value;
@@ -128,7 +126,7 @@ static int smc_variable_table_get(struct smc_variable_table *vt,
             return SMC_OK;
         }
     }
-    return SMC_ERR_EVAL;  /* unbound variable */
+    return SMC_ERR_EVAL;
 }
 
 static void smc_variable_table_clear(struct smc_variable_table *vt) {
@@ -143,9 +141,15 @@ struct smc_context {
     int   level;
     int   initialized;
     struct smc_variable_table variables;
+    smc_artifact_table_t artifact_table;
+    smc_state_table_t state_table;
+    smc_artifact_stats_t artifact_stats;
+    smc_state_stats_t state_stats;
+    int artifact_configured;
+    int state_configured;
 };
 
-static smc_context_t g_global_context = {1, 1, {{{{0}, 0.0}}, 0}};
+static smc_context_t g_global_context = {0};
 static int           g_initialized    = 0;
 
 /* -------------------------------------------------------------------------- */
@@ -159,9 +163,6 @@ int smc_init(void) {
         return SMC_OK;
     }
 
-    /* If a generated dispatch table is linked, verify ABI compatibility.
-       The generated table provides smc_generated_abi_version(); the weak
-       fallback in smc_generated_runtime.c returns 0 (no table). */
     extern int smc_generated_abi_version(void) __attribute__((weak));
     if (smc_generated_abi_version) {
         int generated_abi = smc_generated_abi_version();
@@ -178,6 +179,8 @@ int smc_init(void) {
     g_global_context.level = 1;
     g_global_context.initialized = 1;
     smc_variable_table_init(&g_global_context.variables);
+    g_global_context.artifact_configured = 0;
+    g_global_context.state_configured = 0;
     smc_set_error(SMC_OK, NULL);
     SMC_UNLOCK_GLOBAL();
     return SMC_OK;
@@ -192,7 +195,7 @@ int smc_shutdown(void) {
 }
 
 smc_context_t *smc_context_create(int level) {
-    smc_context_t *ctx = (smc_context_t *)malloc(sizeof(smc_context_t));
+    smc_context_t *ctx = (smc_context_t *)calloc(1, sizeof(smc_context_t));
     if (!ctx) {
         smc_set_error(SMC_ERR_INIT, "failed to allocate context");
         return NULL;
@@ -200,12 +203,17 @@ smc_context_t *smc_context_create(int level) {
     ctx->level = (level < 1) ? 1 : (level > 3 ? 3 : level);
     ctx->initialized = 1;
     smc_variable_table_init(&ctx->variables);
+    ctx->artifact_configured = 0;
+    ctx->state_configured = 0;
+    memset(&ctx->artifact_stats, 0, sizeof(ctx->artifact_stats));
+    memset(&ctx->state_stats, 0, sizeof(ctx->state_stats));
     return ctx;
 }
 
 void smc_context_destroy(smc_context_t *ctx) {
     if (ctx) {
-        ctx->initialized = 0;
+        smc_artifact_table_destroy(&ctx->artifact_table);
+        smc_state_table_destroy(&ctx->state_table);
         free(ctx);
     }
 }
@@ -238,7 +246,7 @@ int smc_get_optimization_level(void) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Tiny expression parser / evaluator                                         */
+/* Tier 1 expression parser                                                   */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
@@ -294,9 +302,7 @@ static int smc_parse_number(smc_parser_t *p, double *out) {
     while (p->pos < p->len) {
         char c = p->s[p->pos];
         if (c == '.') {
-            if (has_dot) {
-                break;
-            }
+            if (has_dot) break;
             has_dot = 1;
             p->pos++;
         } else if (isdigit((unsigned char)c)) {
@@ -330,13 +336,12 @@ static int smc_parse_identifier(smc_parser_t *p, char *out, size_t out_size) {
         smc_set_errorf(SMC_ERR_PARSE, "expected identifier at position %zu", p->pos);
         return SMC_ERR_PARSE;
     }
-    while (p->pos < p->len && (isalnum((unsigned char)p->s[p->pos]) || p->s[p->pos] == '_')) {
+    while (p->pos < p->len && 
+           (isalnum((unsigned char)p->s[p->pos]) || p->s[p->pos] == '_')) {
         p->pos++;
     }
     size_t len = p->pos - start;
-    if (len >= out_size) {
-        len = out_size - 1;
-    }
+    if (len >= out_size) len = out_size - 1;
     memcpy(out, p->s + start, len);
     out[len] = '\0';
     return SMC_OK;
@@ -353,9 +358,7 @@ static int smc_parse_primary(smc_parser_t *p, smc_context_t *ctx, double *out) {
     if (c == '(') {
         smc_parser_get(p);
         int rc = smc_parse_expression(p, ctx, out);
-        if (rc != SMC_OK) {
-            return rc;
-        }
+        if (rc != SMC_OK) return rc;
         return smc_parser_expect(p, ')');
     }
 
@@ -366,9 +369,7 @@ static int smc_parse_primary(smc_parser_t *p, smc_context_t *ctx, double *out) {
     if (isalpha((unsigned char)c)) {
         char name[64];
         int rc = smc_parse_identifier(p, name, sizeof(name));
-        if (rc != SMC_OK) {
-            return rc;
-        }
+        if (rc != SMC_OK) return rc;
         rc = smc_variable_table_get(&ctx->variables, name, out);
         if (rc != SMC_OK) {
             smc_set_errorf(SMC_ERR_EVAL, "unbound variable '%s'", name);
@@ -382,17 +383,12 @@ static int smc_parse_primary(smc_parser_t *p, smc_context_t *ctx, double *out) {
 
 static int smc_parse_power(smc_parser_t *p, smc_context_t *ctx, double *out) {
     int rc = smc_parse_primary(p, ctx, out);
-    if (rc != SMC_OK) {
-        return rc;
-    }
+    if (rc != SMC_OK) return rc;
     if (smc_parser_peek(p) == '^') {
         smc_parser_get(p);
         double rhs;
-        /* Right-associative: a^b^c == a^(b^c) */
         rc = smc_parse_power(p, ctx, &rhs);
-        if (rc != SMC_OK) {
-            return rc;
-        }
+        if (rc != SMC_OK) return rc;
         *out = pow(*out, rhs);
     }
     return SMC_OK;
@@ -403,12 +399,8 @@ static int smc_parse_unary(smc_parser_t *p, smc_context_t *ctx, double *out) {
     if (c == '+' || c == '-') {
         smc_parser_get(p);
         int rc = smc_parse_unary(p, ctx, out);
-        if (rc != SMC_OK) {
-            return rc;
-        }
-        if (c == '-') {
-            *out = -(*out);
-        }
+        if (rc != SMC_OK) return rc;
+        if (c == '-') *out = -(*out);
         return SMC_OK;
     }
     return smc_parse_power(p, ctx, out);
@@ -416,23 +408,16 @@ static int smc_parse_unary(smc_parser_t *p, smc_context_t *ctx, double *out) {
 
 static int smc_parse_term(smc_parser_t *p, smc_context_t *ctx, double *out) {
     int rc = smc_parse_unary(p, ctx, out);
-    if (rc != SMC_OK) {
-        return rc;
-    }
+    if (rc != SMC_OK) return rc;
     for (;;) {
         int c = smc_parser_peek(p);
-        if (c != '*' && c != '/') {
-            break;
-        }
+        if (c != '*' && c != '/') break;
         smc_parser_get(p);
         double rhs;
         rc = smc_parse_unary(p, ctx, &rhs);
-        if (rc != SMC_OK) {
-            return rc;
-        }
-        if (c == '*') {
-            *out *= rhs;
-        } else {
+        if (rc != SMC_OK) return rc;
+        if (c == '*') *out *= rhs;
+        else {
             if (rhs == 0.0) {
                 smc_set_error(SMC_ERR_EVAL, "division by zero");
                 return SMC_ERR_EVAL;
@@ -445,25 +430,16 @@ static int smc_parse_term(smc_parser_t *p, smc_context_t *ctx, double *out) {
 
 static int smc_parse_expression(smc_parser_t *p, smc_context_t *ctx, double *out) {
     int rc = smc_parse_term(p, ctx, out);
-    if (rc != SMC_OK) {
-        return rc;
-    }
+    if (rc != SMC_OK) return rc;
     for (;;) {
         int c = smc_parser_peek(p);
-        if (c != '+' && c != '-') {
-            break;
-        }
+        if (c != '+' && c != '-') break;
         smc_parser_get(p);
         double rhs;
         rc = smc_parse_term(p, ctx, &rhs);
-        if (rc != SMC_OK) {
-            return rc;
-        }
-        if (c == '+') {
-            *out += rhs;
-        } else {
-            *out -= rhs;
-        }
+        if (rc != SMC_OK) return rc;
+        if (c == '+') *out += rhs;
+        else *out -= rhs;
     }
     return SMC_OK;
 }
@@ -515,56 +491,38 @@ int smc_eval_double_with(smc_context_t *ctx, const char *expr, double *out) {
 int smc_eval_float(const char *expr, float *out) {
     double d;
     int rc = smc_eval_double(expr, &d);
-    if (rc == SMC_OK && out) {
-        *out = (float)d;
-    }
+    if (rc == SMC_OK && out) *out = (float)d;
     return rc;
 }
 
 int smc_eval_float_with(smc_context_t *ctx, const char *expr, float *out) {
     double d;
     int rc = smc_eval_double_with(ctx, expr, &d);
-    if (rc == SMC_OK && out) {
-        *out = (float)d;
-    }
+    if (rc == SMC_OK && out) *out = (float)d;
     return rc;
 }
 
 int smc_eval_int(const char *expr, int64_t *out) {
     double d;
     int rc = smc_eval_double(expr, &d);
-    if (rc == SMC_OK && out) {
-        *out = (int64_t)d;
-    }
+    if (rc == SMC_OK && out) *out = (int64_t)d;
     return rc;
 }
 
 int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out) {
     double d;
     int rc = smc_eval_double_with(ctx, expr, &d);
-    if (rc == SMC_OK && out) {
-        *out = (int64_t)d;
-    }
+    if (rc == SMC_OK && out) *out = (int64_t)d;
     return rc;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Tier 2 generated-code calls                                                */
+/* Tier 2 generated-code calls (weak, overridden by generated table)          */
 /* -------------------------------------------------------------------------- */
-/*
- * The actual implementations of smc_call_* and smc_expr_* are supplied by the
- * generated dispatch table (smc_generated.c).  The smc_generated_runtime.c
- * companion file provides weak fallbacks that return SMC_ERR_NOT_IMPL when no
- * generated table is linked.
- */
 
 __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
-                    const double *args, size_t argc,
-                    double *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
+                    const double *args, size_t argc, double *out) {
+    (void)expr_id; (void)args; (void)argc; (void)out;
     smc_stats_increment(&g_stats->total_calls);
     smc_stats_increment(&g_stats->fallback_evals);
     smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
@@ -572,12 +530,8 @@ __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
 }
 
 __attribute__((weak)) int smc_call_float(smc_expr_id_t expr_id,
-                   const float *args, size_t argc,
-                   float *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
+                   const float *args, size_t argc, float *out) {
+    (void)expr_id; (void)args; (void)argc; (void)out;
     smc_stats_increment(&g_stats->total_calls);
     smc_stats_increment(&g_stats->fallback_evals);
     smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
@@ -585,19 +539,14 @@ __attribute__((weak)) int smc_call_float(smc_expr_id_t expr_id,
 }
 
 __attribute__((weak)) int smc_call_int(smc_expr_id_t expr_id,
-                 const int64_t *args, size_t argc,
-                 int64_t *out) {
-    (void)expr_id;
-    (void)args;
-    (void)argc;
-    (void)out;
+                 const int64_t *args, size_t argc, int64_t *out) {
+    (void)expr_id; (void)args; (void)argc; (void)out;
     smc_stats_increment(&g_stats->total_calls);
     smc_stats_increment(&g_stats->fallback_evals);
     smc_set_error(SMC_ERR_NOT_IMPL, "no generated dispatch table linked");
     return SMC_ERR_NOT_IMPL;
 }
 
-/* Weak metadata fallbacks.  A generated dispatch table overrides these. */
 __attribute__((weak)) int smc_expr_count(void) {
     return 0;
 }
@@ -613,7 +562,7 @@ __attribute__((weak)) const char *smc_expr_source(smc_expr_id_t id) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Variables (stub: not implemented in Milestone 1)                             */
+/* Variables                                                                  */
 /* -------------------------------------------------------------------------- */
 
 int smc_set_variable_double(const char *name, double value) {
@@ -658,7 +607,7 @@ int smc_clear_variables_with(smc_context_t *ctx) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Cache control (stub: not implemented in Milestone 1)                       */
+/* Cache control                                                              */
 /* -------------------------------------------------------------------------- */
 
 int smc_cache_clear(void) {
@@ -677,8 +626,7 @@ int smc_cache_save(const char *path) {
 }
 
 int smc_cache_save_with(smc_context_t *ctx, const char *path) {
-    (void)ctx;
-    (void)path;
+    (void)ctx; (void)path;
     smc_set_error(SMC_ERR_NOT_IMPL, "cache persistence not implemented in stub runtime");
     return SMC_ERR_NOT_IMPL;
 }
@@ -690,14 +638,13 @@ int smc_cache_load(const char *path) {
 }
 
 int smc_cache_load_with(smc_context_t *ctx, const char *path) {
-    (void)ctx;
-    (void)path;
+    (void)ctx; (void)path;
     smc_set_error(SMC_ERR_NOT_IMPL, "cache persistence not implemented in stub runtime");
     return SMC_ERR_NOT_IMPL;
 }
 
 /* -------------------------------------------------------------------------- */
-/* Source generation (stub: not implemented in Milestone 1)                   */
+/* Source generation                                                          */
 /* -------------------------------------------------------------------------- */
 
 int smc_generate_c_source(const char *out_path) {
@@ -707,10 +654,185 @@ int smc_generate_c_source(const char *out_path) {
 }
 
 int smc_generate_c_source_with(smc_context_t *ctx, const char *out_path) {
-    (void)ctx;
-    (void)out_path;
+    (void)ctx; (void)out_path;
     smc_set_error(SMC_ERR_NOT_IMPL, "source generation not implemented in stub runtime");
     return SMC_ERR_NOT_IMPL;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Artifact cache (ABI v2)                                                    */
+/* -------------------------------------------------------------------------- */
+
+int smc_artifact_configure(smc_context_t *ctx, const smc_artifact_config_t *config) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!config) {
+        smc_set_error(SMC_ERR_INVALID, "null config");
+        return SMC_ERR_INVALID;
+    }
+    if (ctx->artifact_configured) {
+        smc_set_error(SMC_ERR_INVALID, "artifact cache already configured");
+        return SMC_ERR_INVALID;
+    }
+    
+    int rc = smc_artifact_table_init(&ctx->artifact_table, config, &ctx->artifact_stats);
+    if (rc == SMC_OK) {
+        ctx->artifact_configured = 1;
+    }
+    return rc;
+}
+
+int smc_artifact_lookup(smc_context_t *ctx,
+                         const void *key, size_t key_size,
+                         void *out_value, size_t value_capacity,
+                         size_t *out_value_size) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->artifact_configured) {
+        smc_set_error(SMC_ERR_INIT, "artifact cache not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_artifact_table_lookup(&ctx->artifact_table, key, key_size,
+                                      out_value, value_capacity, out_value_size);
+}
+
+int smc_artifact_store(smc_context_t *ctx,
+                        const void *key, size_t key_size,
+                        const void *value, size_t value_size) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->artifact_configured) {
+        smc_set_error(SMC_ERR_INIT, "artifact cache not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_artifact_table_store(&ctx->artifact_table, key, key_size, value, value_size);
+}
+
+int smc_artifact_remove(smc_context_t *ctx,
+                         const void *key, size_t key_size) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->artifact_configured) {
+        smc_set_error(SMC_ERR_INIT, "artifact cache not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_artifact_table_remove(&ctx->artifact_table, key, key_size);
+}
+
+int smc_artifact_clear(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->artifact_configured) {
+        smc_set_error(SMC_ERR_INIT, "artifact cache not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_artifact_table_clear(&ctx->artifact_table);
+}
+
+int smc_artifact_get_stats(smc_context_t *ctx, smc_artifact_stats_t *out) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!out) {
+        smc_set_error(SMC_ERR_INVALID, "null stats output");
+        return SMC_ERR_INVALID;
+    }
+    *out = ctx->artifact_stats;
+    return SMC_OK;
+}
+
+int smc_artifact_reset_stats(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    memset(&ctx->artifact_stats, 0, sizeof(ctx->artifact_stats));
+    return SMC_OK;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Dirty-state tracking (ABI v2)                                              */
+/* -------------------------------------------------------------------------- */
+
+int smc_state_configure(smc_context_t *ctx, const smc_state_config_t *config) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!config) {
+        smc_set_error(SMC_ERR_INVALID, "null config");
+        return SMC_ERR_INVALID;
+    }
+    if (ctx->state_configured) {
+        smc_set_error(SMC_ERR_INVALID, "state tracker already configured");
+        return SMC_ERR_INVALID;
+    }
+    
+    int rc = smc_state_table_init(&ctx->state_table, config, &ctx->state_stats);
+    if (rc == SMC_OK) {
+        ctx->state_configured = 1;
+    }
+    return rc;
+}
+
+int smc_state_changed(smc_context_t *ctx,
+                       const void *key, size_t key_size,
+                       const void *state, size_t state_size,
+                       int *out_changed) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->state_configured) {
+        smc_set_error(SMC_ERR_INIT, "state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_state_table_check(&ctx->state_table, key, key_size, state, state_size, out_changed);
+}
+
+int smc_state_clear(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->state_configured) {
+        smc_set_error(SMC_ERR_INIT, "state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_state_table_clear(&ctx->state_table);
+}
+
+int smc_state_get_stats(smc_context_t *ctx, smc_state_stats_t *out) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!out) {
+        smc_set_error(SMC_ERR_INVALID, "null stats output");
+        return SMC_ERR_INVALID;
+    }
+    *out = ctx->state_stats;
+    return SMC_OK;
+}
+
+int smc_state_reset_stats(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    memset(&ctx->state_stats, 0, sizeof(ctx->state_stats));
+    return SMC_OK;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -723,6 +845,10 @@ int smc_abi_version(void) {
 
 const char *smc_runtime_kind(void) {
     return "stub";
+}
+
+uint32_t smc_features(void) {
+    return SMC_FEATURE_ARTIFACT_CACHE | SMC_FEATURE_STATE_TRACKING;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -743,6 +869,8 @@ const char *smc_error_string(int code) {
         case SMC_ERR_NOT_FOUND: return "expression not found";
         case SMC_ERR_THREAD:    return "thread-safety violation";
         case SMC_ERR_SHUTDOWN:  return "library shut down";
+        case SMC_ERR_SIZE:      return "size limit exceeded";
+        case SMC_ERR_CAPACITY:  return "memory budget exceeded";
         default:                return "unknown error";
     }
 }

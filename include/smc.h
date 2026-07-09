@@ -114,6 +114,13 @@ extern "C" {
 #define SMC_ABI_VERSION 1
 
 /* -------------------------------------------------------------------------- */
+/* Feature flags (ABI v2 additions)                                           */
+/* -------------------------------------------------------------------------- */
+
+#define SMC_FEATURE_ARTIFACT_CACHE 0x00000001u
+#define SMC_FEATURE_STATE_TRACKING 0x00000002u
+
+/* -------------------------------------------------------------------------- */
 /* Error codes                                                                */
 /* -------------------------------------------------------------------------- */
 
@@ -129,6 +136,8 @@ extern "C" {
 #define SMC_ERR_NOT_FOUND -9   /* expression ID not present in generated table */
 #define SMC_ERR_THREAD    -10  /* thread-safety violation */
 #define SMC_ERR_SHUTDOWN  -11  /* library has been shut down */
+#define SMC_ERR_SIZE      -12  /* key or value exceeds configured limits */
+#define SMC_ERR_CAPACITY  -13  /* configuration exceeds memory budget */
 
 /* -------------------------------------------------------------------------- */
 /* Public types                                                               */
@@ -163,6 +172,57 @@ struct smc_stats {
 typedef struct smc_stats smc_stats_t;
 
 /* -------------------------------------------------------------------------- */
+/* Artifact cache configuration and statistics (ABI v2)                         */
+/* -------------------------------------------------------------------------- */
+
+#define SMC_ARTIFACT_DEFAULT_MAX_ENTRIES 4096
+#define SMC_ARTIFACT_DEFAULT_MAX_KEY_SIZE 64
+#define SMC_ARTIFACT_DEFAULT_MAX_VALUE_SIZE 4096
+
+typedef struct {
+    size_t max_entries;         /* maximum number of cache entries */
+    size_t max_key_size;        /* maximum key size in bytes */
+    size_t max_value_size;      /* maximum value size in bytes */
+    size_t memory_budget_bytes; /* total memory budget (0 = computed default) */
+} smc_artifact_config_t;
+
+typedef struct {
+    uint64_t lookups;
+    uint64_t hits;
+    uint64_t misses;
+    uint64_t stores;
+    uint64_t updates;         /* stores to existing keys */
+    uint64_t evictions;
+    uint64_t removes;
+    uint64_t clears;
+    uint64_t bytes_stored;
+    uint64_t bytes_returned;
+} smc_artifact_stats_t;
+
+/* -------------------------------------------------------------------------- */
+/* Dirty-state configuration and statistics (ABI v2)                            */
+/* -------------------------------------------------------------------------- */
+
+#define SMC_STATE_DEFAULT_MAX_ENTRIES 4096
+#define SMC_STATE_DEFAULT_MAX_KEY_SIZE 64
+#define SMC_STATE_DEFAULT_MAX_STATE_SIZE 256
+
+typedef struct {
+    size_t max_entries;
+    size_t max_key_size;
+    size_t max_state_size;
+    size_t memory_budget_bytes;
+} smc_state_config_t;
+
+typedef struct {
+    uint64_t checks;
+    uint64_t changed;
+    uint64_t unchanged;
+    uint64_t stores;
+    uint64_t bytes_compared;
+} smc_state_stats_t;
+
+/* -------------------------------------------------------------------------- */
 /* Introspection                                                              */
 /* -------------------------------------------------------------------------- */
 
@@ -177,12 +237,16 @@ SMC_API int smc_abi_version(void);
  * Safe to call before smc_init(). */
 SMC_API const char *smc_runtime_kind(void);
 
+/* Return a bitmask of supported features from SMC_FEATURE_* flags.
+ * Safe to call before smc_init(). */
+SMC_API uint32_t smc_features(void);
+
 /* -------------------------------------------------------------------------- */
 /* Lifecycle                                                                  */
 /* -------------------------------------------------------------------------- */
 
 /* One-time library initialization. Must be called before any other API except
- * smc_abi_version(), smc_runtime_kind(), and smc_error_string().
+ * smc_abi_version(), smc_runtime_kind(), smc_features(), and smc_error_string().
  *
  * Thread safety: not thread-safe.  Call once per process from a single
  * thread before any other SMC API.
@@ -194,7 +258,7 @@ SMC_API int smc_init(void);
 /* One-time library shutdown. Releases global resources.
  *
  * Thread safety: not thread-safe.  After this returns, only smc_abi_version(),
- * smc_runtime_kind(), and smc_error_string() remain safe to call. */
+ * smc_runtime_kind(), smc_features(), and smc_error_string() remain safe to call. */
 SMC_API int smc_shutdown(void);
 
 /* Create an isolated context with the given optimization level (1..3).
@@ -255,16 +319,16 @@ SMC_API int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out
  * Returns SMC_OK on success, SMC_ERR_NOT_FOUND for an unknown ID, or
  * SMC_ERR_ARITY if ARGC does not match the expression's arity. */
 SMC_API int smc_call_double(smc_expr_id_t expr_id,
-                            const double *args, size_t argc,
-                            double *out);
+                             const double *args, size_t argc,
+                             double *out);
 
 SMC_API int smc_call_float(smc_expr_id_t expr_id,
-                           const float *args, size_t argc,
-                           float *out);
+                            const float *args, size_t argc,
+                            float *out);
 
 SMC_API int smc_call_int(smc_expr_id_t expr_id,
-                         const int64_t *args, size_t argc,
-                         int64_t *out);
+                          const int64_t *args, size_t argc,
+                          int64_t *out);
 
 /* -------------------------------------------------------------------------- */
 /* Variables                                                                  */
@@ -296,6 +360,85 @@ SMC_API int smc_cache_save_with(smc_context_t *ctx, const char *path);
 
 SMC_API int smc_cache_load(const char *path);
 SMC_API int smc_cache_load_with(smc_context_t *ctx, const char *path);
+
+/* -------------------------------------------------------------------------- */
+/* Artifact cache (ABI v2)                                                    */
+/* -------------------------------------------------------------------------- */
+
+/* Configure the artifact cache for a context.  Must be called before any
+ * artifact operations on the context.  Returns SMC_ERR_CAPACITY if the
+ * configuration cannot fit within the memory budget.
+ *
+ * Thread safety: not thread-safe; call once per context before multi-threaded use. */
+SMC_API int smc_artifact_configure(smc_context_t *ctx,
+                                    const smc_artifact_config_t *config);
+
+/* Lookup an artifact by opaque binary key.
+ *
+ * Returns SMC_OK on hit, SMC_ERR_NOT_FOUND on miss, SMC_ERR_SIZE if key_size
+ * exceeds max_key_size or value_capacity is smaller than stored value.
+ * Sets *out_value_size to required size on SMC_ERR_SIZE.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid.
+ * Thread safety: externally synchronized in v1; use one context per thread. */
+SMC_API int smc_artifact_lookup(smc_context_t *ctx,
+                                 const void *key, size_t key_size,
+                                 void *out_value, size_t value_capacity,
+                                 size_t *out_value_size);
+
+/* Store an artifact with an opaque binary key.
+ *
+ * Returns SMC_ERR_SIZE if key_size exceeds max_key_size or value_size exceeds
+ * max_value_size.  The "stores" counter increments every call; "updates"
+ * increments only when replacing an existing key.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid.
+ * Thread safety: externally synchronized in v1. */
+SMC_API int smc_artifact_store(smc_context_t *ctx,
+                                 const void *key, size_t key_size,
+                                 const void *value, size_t value_size);
+
+/* Remove an artifact by key. */
+SMC_API int smc_artifact_remove(smc_context_t *ctx,
+                                 const void *key, size_t key_size);
+
+/* Clear all artifacts in the cache. */
+SMC_API int smc_artifact_clear(smc_context_t *ctx);
+
+/* Get/reset artifact cache statistics. */
+SMC_API int smc_artifact_get_stats(smc_context_t *ctx, smc_artifact_stats_t *out);
+SMC_API int smc_artifact_reset_stats(smc_context_t *ctx);
+
+/* -------------------------------------------------------------------------- */
+/* Dirty-state tracking (ABI v2)                                                */
+/* -------------------------------------------------------------------------- */
+
+/* Configure the dirty-state tracker for a context.  Must be called before any
+ * state operations on the context.  Independent of artifact cache configuration.
+ *
+ * Thread safety: not thread-safe; call once per context before multi-threaded use. */
+SMC_API int smc_state_configure(smc_context_t *ctx,
+                                  const smc_state_config_t *config);
+
+/* Check if state has changed for a given key.
+ *
+ * First observation of a key returns changed=1 and stores the state.
+ * Same key and same bytes returns changed=0.
+ * Same key and different bytes returns changed=1 and updates stored state.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid; out_changed is non-NULL.
+ * Thread safety: externally synchronized in v1. */
+SMC_API int smc_state_changed(smc_context_t *ctx,
+                               const void *key, size_t key_size,
+                               const void *state, size_t state_size,
+                               int *out_changed);
+
+/* Clear all tracked state. */
+SMC_API int smc_state_clear(smc_context_t *ctx);
+
+/* Get/reset state tracking statistics. */
+SMC_API int smc_state_get_stats(smc_context_t *ctx, smc_state_stats_t *out);
+SMC_API int smc_state_reset_stats(smc_context_t *ctx);
 
 /* -------------------------------------------------------------------------- */
 /* Source generation (build-time optimizer output)                            */

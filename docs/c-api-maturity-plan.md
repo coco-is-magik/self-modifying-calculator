@@ -234,7 +234,39 @@ Phases 1–7 are complete. Phase 8 is in progress. The remaining work is:
 3. Phase 8 — Document macOS/Windows build steps.
 4. Phase 8 — Run final verification across all sanitizer presets.
 
-The C API maturity plan is now substantially implemented; the remaining items are verification and portability rather than missing features.
+The C API maturity plan is now substantially implemented; Phase 9 adds the artifact cache subsystem that emerged from the renderer work.
+
+---
+
+## Phase 9 — Artifact Cache Subsystem ✅
+
+**Goal**: Add a general binary artifact cache and dirty-state tracker for hot-path optimization in C applications.
+
+**Completed**:
+
+- `smc_artifact_*` API added to `include/smc.h`:
+  - `smc_artifact_configure`, `smc_artifact_lookup`, `smc_artifact_store`
+  - `smc_artifact_remove`, `smc_artifact_clear`
+  - `smc_artifact_get_stats`, `smc_artifact_reset_stats`
+- `smc_state_*` API added to `include/smc.h`:
+  - `smc_state_configure`, `smc_state_changed`
+  - `smc_state_clear`, `smc_state_get_stats`, `smc_state_reset_stats`
+- `src/c/smc_artifact.c` implements direct-mapped artifact cache
+- `src/c/smc_state.c` implements dirty-state tracking
+- `smc_features()` returns `SMC_FEATURE_ARTIFACT_CACHE | SMC_FEATURE_STATE_TRACKING`
+- C tests: `test_artifact_cache.c`, `test_state_tracking.c`
+- C examples: `artifact_cache_basic.c`, `dirty_state_basic.c`, `glyph_block_cache.c`
+- Python binding updated with `artifact_*` and `state_*` functions
+- `docs/artifact-cache.md` documents the API
+
+**Remaining**: None.
+
+**Acceptance Criteria**:
+
+- All new APIs compile with strict C99. ✅
+- All new tests pass. ✅
+- Examples demonstrate the renderer pattern. ✅
+- Stats counters accurately track hits/misses/updates/evictions. ✅
 
 ---
 
