@@ -188,6 +188,65 @@ def test_stats() -> None:
     assert stats.parse_errors == 0
 
 
+def test_artifact_cache() -> None:
+    """The artifact cache API must store, lookup, and report stats."""
+    features = smc.features()
+    assert (features & smc.SMC_FEATURE_ARTIFACT_CACHE) != 0, "artifact cache feature not enabled"
+
+    with smc.Context() as ctx:
+        smc.artifact_configure(ctx, {"max_entries": 16})
+
+        # Store and lookup
+        key = b"test_key"
+        value = b"test_value_123"
+        smc.artifact_store(ctx, key, value)
+
+        data, size = smc.artifact_lookup(ctx, key, 64)
+        assert data == value, f"expected {value!r}, got {data!r}"
+        assert size == len(value), f"expected size {len(value)}, got {size}"
+
+        stats = smc.artifact_get_stats(ctx)
+        assert stats.lookups == 1
+        assert stats.hits == 1
+        assert stats.stores == 1
+
+        # Remove and verify
+        smc.artifact_remove(ctx, key)
+        stats = smc.artifact_get_stats(ctx)
+        assert stats.removes == 1
+
+
+def test_state_tracking() -> None:
+    """The dirty-state tracking API must detect repeated state."""
+    features = smc.features()
+    assert (features & smc.SMC_FEATURE_STATE_TRACKING) != 0, "state tracking feature not enabled"
+
+    with smc.Context() as ctx:
+        smc.state_configure(ctx, {})
+
+        # First observation - state is changed
+        key = b"cell_42"
+        state1 = b"state_A"
+        changed = smc.state_changed(ctx, key, state1)
+        assert changed == True, "first observation should be changed"
+
+        stats = smc.state_get_stats(ctx)
+        assert stats.checks == 1
+        assert stats.changed == 1
+
+        # Same state - unchanged
+        changed = smc.state_changed(ctx, key, state1)
+        assert changed == False, "same state should be unchanged"
+
+        # Different state - changed
+        state2 = b"state_B"
+        changed = smc.state_changed(ctx, key, state2)
+        assert changed == True, "different state should be changed"
+
+        stats = smc.state_get_stats(ctx)
+        assert stats.changed == 2
+
+
 def main() -> int:
     tests = [
         test_global_eval,
@@ -202,6 +261,8 @@ def main() -> int:
         test_ctypes_types_imported,
         test_generated_table_loads_when_present,
         test_stats,
+        test_artifact_cache,
+        test_state_tracking,
     ]
     for test in tests:
         try:

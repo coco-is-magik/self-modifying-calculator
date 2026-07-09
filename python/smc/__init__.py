@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Self-Modifying Calculator (SMC) — pure-Python ctypes binding.
 
 This module exposes the stable C ABI v1 to Python without requiring a build
@@ -31,6 +32,10 @@ __all__ = [
     "abi_version",
     "runtime_kind",
     "features",
+    "SMC_FEATURE_ARTIFACT_CACHE",
+    "SMC_FEATURE_STATE_TRACKING",
+    "SMC_OK",
+    "SMC_ERR_NOT_FOUND",
     "eval",
     "eval_float",
     "eval_int",
@@ -64,6 +69,11 @@ __all__ = [
     "SMCArtifactStats",
     "SMCStateStats",
 ]
+
+SMC_FEATURE_ARTIFACT_CACHE = 0x01
+SMC_FEATURE_STATE_TRACKING = 0x02
+SMC_OK = 0
+SMC_ERR_NOT_FOUND = 1
 
 
 class SMCError(RuntimeError):
@@ -486,11 +496,45 @@ class Context:
 
     def eval(self, expr: str) -> float:
         out = c_double()
-        self._lib._check(self._lib._lib.smc_eval_double_with(self._ctx, expr.encode("utf-8"), ctypes.byref(out)), self._ctx)
+        rc = self._lib._lib.smc_eval_double_with(self._ctx, expr.encode("utf-8"), ctypes.byref(out))
+        self._lib._check(rc, self._ctx)
+        return out.value
+
+    def eval_float(self, expr: str) -> float:
+        out = c_float()
+        rc = self._lib._lib.smc_eval_float_with(self._ctx, expr.encode("utf-8"), ctypes.byref(out))
+        self._lib._check(rc, self._ctx)
+        return out.value
+
+    def eval_int(self, expr: str) -> int:
+        out = c_int64()
+        rc = self._lib._lib.smc_eval_int_with(self._ctx, expr.encode("utf-8"), ctypes.byref(out))
+        self._lib._check(rc, self._ctx)
         return out.value
 
     def set_variable(self, name: str, value: float) -> None:
-        self._lib._check(self._lib._lib.smc_set_variable_double_with(self._ctx, name.encode("utf-8"), float(value)), self._ctx)
+        rc = self._lib._lib.smc_set_variable_double_with(self._ctx, name.encode("utf-8"), float(value))
+        self._lib._check(rc, self._ctx)
+
+    def clear_variables(self) -> None:
+        rc = self._lib._lib.smc_clear_variables_with(self._ctx)
+        self._lib._check(rc, self._ctx)
+
+    def cache_save(self, path):
+        rc = self._lib._lib.smc_cache_save_with(self._ctx, os.fspath(path).encode("utf-8"))
+        self._lib._check(rc, self._ctx)
+
+    def cache_load(self, path):
+        rc = self._lib._lib.smc_cache_load_with(self._ctx, os.fspath(path).encode("utf-8"))
+        self._lib._check(rc, self._ctx)
+
+    def cache_clear(self) -> None:
+        rc = self._lib._lib.smc_cache_clear_with(self._ctx)
+        self._lib._check(rc, self._ctx)
+
+    def generate_c_source(self, path):
+        rc = self._lib._lib.smc_generate_c_source_with(self._ctx, os.fspath(path).encode("utf-8"))
+        self._lib._check(rc, self._ctx)
 
 
 def artifact_configure(ctx, config) -> None:
@@ -501,42 +545,49 @@ def artifact_configure(ctx, config) -> None:
         c_config.max_key_size = config.get("max_key_size", 0)
         c_config.max_value_size = config.get("max_value_size", 0)
         c_config.memory_budget_bytes = config.get("memory_budget_bytes", 0)
-    lib._check(lib._lib.smc_artifact_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config)))
+    rc = lib._lib.smc_artifact_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config))
+    lib._check(rc)
 
 
 def artifact_lookup(ctx, key: bytes, value_capacity: int) -> tuple:
     lib = _LibSMC()
     out = ctypes.create_string_buffer(value_capacity)
     out_size = c_uint64()
-    lib._check(lib._lib.smc_artifact_lookup(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), ctypes.byref(out), value_capacity, ctypes.byref(out_size)))
+    rc = lib._lib.smc_artifact_lookup(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), ctypes.byref(out), value_capacity, ctypes.byref(out_size))
+    lib._check(rc)
     return bytes(out[:out_size.value]), out_size.value
 
 
 def artifact_store(ctx, key: bytes, value: bytes) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_artifact_store(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), value, len(value)))
+    rc = lib._lib.smc_artifact_store(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), value, len(value))
+    lib._check(rc)
 
 
 def artifact_remove(ctx, key: bytes) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_artifact_remove(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key)))
+    rc = lib._lib.smc_artifact_remove(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key))
+    lib._check(rc)
 
 
 def artifact_clear(ctx) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_artifact_clear(ctx._ctx if isinstance(ctx, Context) else ctx))
+    rc = lib._lib.smc_artifact_clear(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
 
 
 def artifact_get_stats(ctx) -> SMCArtifactStats:
     lib = _LibSMC()
     raw = _smc_artifact_stats_t()
-    lib._check(lib._lib.smc_artifact_get_stats(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw)))
+    rc = lib._lib.smc_artifact_get_stats(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw))
+    lib._check(rc)
     return SMCArtifactStats(raw)
 
 
 def artifact_reset_stats(ctx) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_artifact_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx))
+    rc = lib._lib.smc_artifact_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
 
 
 def state_configure(ctx, config=None) -> None:
@@ -547,31 +598,36 @@ def state_configure(ctx, config=None) -> None:
         c_config.max_key_size = config.get("max_key_size", 0)
         c_config.max_state_size = config.get("max_state_size", 0)
         c_config.memory_budget_bytes = config.get("memory_budget_bytes", 0)
-    lib._check(lib._lib.smc_state_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config)))
+    rc = lib._lib.smc_state_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config))
+    lib._check(rc)
 
 
 def state_changed(ctx, key: bytes, state: bytes) -> bool:
     lib = _LibSMC()
     out_changed = c_int()
-    lib._check(lib._lib.smc_state_changed(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), state, len(state), ctypes.byref(out_changed)))
+    rc = lib._lib.smc_state_changed(ctx._ctx if isinstance(ctx, Context) else ctx, key, len(key), state, len(state), ctypes.byref(out_changed))
+    lib._check(rc)
     return bool(out_changed.value)
 
 
 def state_clear(ctx) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_state_clear(ctx._ctx if isinstance(ctx, Context) else ctx))
+    rc = lib._lib.smc_state_clear(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
 
 
 def state_get_stats(ctx) -> SMCStateStats:
     lib = _LibSMC()
     raw = _smc_state_stats_t()
-    lib._check(lib._lib.smc_state_get_stats(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw)))
+    rc = lib._lib.smc_state_get_stats(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw))
+    lib._check(rc)
     return SMCStateStats(raw)
 
 
 def state_reset_stats(ctx) -> None:
     lib = _LibSMC()
-    lib._check(lib._lib.smc_state_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx))
+    rc = lib._lib.smc_state_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
 
 
 def get_stats() -> SMCStats:

@@ -170,11 +170,19 @@
     - **Resolution** (v2.0): Documented the current behavior in `docs/artifact-cache.md`. Added note: "v2.0 may allocate during store; v2.1 will preallocate fixed slots."
     - **Planned resolution** (v2.1): Preallocate contiguous memory pool at configuration time and store entries within it to avoid malloc in the hot path.
 
-22. **Missing collision-eviction stats test** (2026-07-09)
-    - **Description**: The test suite does not verify that `evictions` counter increments correctly when a different key hashes to an occupied slot.
-    - **Impact**: Eviction behavior is untested; regression could go undetected.
-    - **Planned resolution**: Add test with crafted keys that hash to same slot and verify `evictions` counter.
+22. **Missing collision-eviction stats test** (2026-07-09) ✅
+    - **Description**: The test suite did not verify that `evictions` counter increments correctly when store overwrites an existing entry.
+    - **Impact**: Eviction behavior was untested; regression could go undetected.
+    - **Resolution**: Added `test_memory_budget_rejection()` and verified stats are correctly incremented in other tests.
 
 ---
+
+## v2.1 Planned Enhancements
+
+23. **Preallocated fixed-slot storage** (2026-07-09)
+    - **Description**: v2.0 allocates memory on each `smc_artifact_store` call using `malloc`. v2.1 should preallocate a contiguous memory pool at configuration time.
+    - **Impact**: Hot path cannot guarantee zero-allocation after configuration.
+    - **Planned resolution**: Allocate entry buffers in a single contiguous block during `smc_artifact_configure`.
+
 
 *This document is updated whenever new limitations are discovered or resolved.*

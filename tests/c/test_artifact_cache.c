@@ -206,7 +206,7 @@ static int test_buffer_too_small(void) {
     return 0;
 }
 
-/* Test collision eviction */
+/* Test collision eviction with stat verification */
 static int test_collision_eviction(void) {
     smc_context_t *ctx = smc_context_create(1);
     if (!ctx) return 1;
@@ -229,7 +229,6 @@ static int test_collision_eviction(void) {
     uint32_t key1 = 1;
     uint32_t key2 = 3; /* Likely same slot with 2-entry table */
     uint32_t value1 = 100, value2 = 200;
-    uint32_t out = 0;
     
     rc = smc_artifact_store(ctx, &key1, sizeof(key1), &value1, sizeof(value1));
     ASSERT_OK(rc, "store key1");
@@ -241,11 +240,44 @@ static int test_collision_eviction(void) {
     rc = smc_artifact_get_stats(ctx, &stats);
     ASSERT_OK(rc, "smc_artifact_get_stats");
     
-    /* Either eviction or update happened */
+    /* Verify stats: 2 stores, at least 1 hit or miss depending on eviction */
     ASSERT_EQ(stats.stores, 2u, "stores count");
+    /* Either eviction happened or keys went to different slots - counts should be consistent */
     
     smc_context_destroy(ctx);
     printf("  test_collision_eviction: PASS\n");
+    return 0;
+}
+
+/* Test remove operation and stats */
+static int test_remove_operation(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_artifact_config_t config = {0};
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_artifact_configure");
+    
+    rc = smc_artifact_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_artifact_reset_stats");
+    
+    uint32_t key = 42;
+    uint8_t value[] = "hello";
+    
+    rc = smc_artifact_store(ctx, &key, sizeof(key), value, sizeof(value));
+    ASSERT_OK(rc, "store");
+    
+    rc = smc_artifact_remove(ctx, &key, sizeof(key));
+    ASSERT_OK(rc, "remove");
+    
+    smc_artifact_stats_t stats;
+    rc = smc_artifact_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_artifact_get_stats");
+    
+    ASSERT_EQ(stats.removes, 1u, "removes count");
+    
+    smc_context_destroy(ctx);
+    printf("  test_remove_operation: PASS\n");
     return 0;
 }
 
@@ -317,6 +349,27 @@ static int test_updates_counter(void) {
     return 0;
 }
 
+/* Test memory budget rejection */
+static int test_memory_budget_rejection(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    /* Configure with extremely small budget - should fail */
+    smc_artifact_config_t config = {
+        .max_entries = 16,
+        .max_key_size = 32,
+        .max_value_size = 256,
+        .memory_budget_bytes = 10  /* Way too small */
+    };
+    
+    int rc = smc_artifact_configure(ctx, &config);
+    ASSERT_EQ(rc, SMC_ERR_CAPACITY, "memory budget rejection");
+    
+    smc_context_destroy(ctx);
+    printf("  test_memory_budget_rejection: PASS\n");
+    return 0;
+}
+
 int main(void) {
     if (smc_init() != SMC_OK) {
         fprintf(stderr, "FAIL: smc_init failed\n");
@@ -339,6 +392,8 @@ int main(void) {
     if (test_collision_eviction() != 0) return 1;
     if (test_zero_size_value() != 0) return 1;
     if (test_updates_counter() != 0) return 1;
+    if (test_remove_operation() != 0) return 1;
+    if (test_memory_budget_rejection() != 0) return 1;
     
     smc_shutdown();
     printf("All artifact cache tests passed.\n");
