@@ -244,7 +244,7 @@ ctest --test-dir build --output-on-failure
 | `SMC_BUILD_STATIC` | ON | Build `libsmc.a` and `libsmc_generated.a` |
 | `SMC_BUILD_EXAMPLES` | ON | Build `hello_smc` and `renderer_hotpath` |
 | `SMC_BUILD_TESTS` | ON | Build C acceptance tests |
-| `SMC_BUILD_BENCHMARKS` | ON | Build `benchmark_generated` |
+| `SMC_BUILD_BENCHMARKS` | ON | Build C benchmarks including `benchmark_indexed_state` |
 | `SMC_GENERATED_SOURCE` | "" | Path to `smc_generated.c` |
 
 **Python install from source:**
@@ -278,142 +278,42 @@ PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/python/test_smc.py
 
 **Benchmarks:**
 ```bash
-# C
+# C benchmarks
 ./build/benchmark_generated
+./build/benchmark_indexed_state  # Dense state tracking API benchmark
 
 # Python
 PYTHONPATH=python LD_LIBRARY_PATH=build python3 tests/benchmarks/benchmark_embedding.py
 ```
 
+### Indexed-State API (v2.1)
+
+For dense array data where each element has a stable integer index (renderers, ECS, tile maps, particle systems), use the indexed state API. This avoids hashing overhead and provides significantly faster performance than the generic state API.
+
+```c
+// Configuration
+smc_state_indexed_config_t config = {
+    .count = 41600,          // Number of indexed slots (e.g., 260x160 grid)
+    .state_size = 8,         // Size of each state record
+    .memory_budget_bytes = 0   // Auto-computed
+};
+smc_state_indexed_configure(ctx, &config);
+
+// Scalar check (fast path for single indices)
+int changed = 0;
+smc_state_changed_index(ctx, index, &state, sizeof(state), &changed);
+
+// Batch check (reduces per-call overhead for large batches)
+size_t dirty_count = 0;
+smc_state_diff_indexed_batch(ctx, states, count, stride, dirty_indices, capacity, &dirty_count);
+```
+
+Typical performance for 41,600 records with 8-byte state structs:
+- Generic unchanged: ~250-320 ns/op
+- Indexed unchanged: ~30 ns/op (8-10x faster)
+- Batch unchanged: ~15-40 ns/op (6-20x faster)
+- Generic changed: ~600-2100 ns/op
+- Indexed changed: ~40 ns/op (15x faster)
+- Batch changed: ~15-60 ns/op (10-40x faster)
+
 ### Limitations
-
-- The stub runtime supports only scalar arithmetic (`+`, `-`, `*`, `/`, `^`), parentheses, unary `+`/`-`, and variable binding.
-- Cache persistence and source generation return `SMC_ERR_NOT_IMPL` in the stub runtime.
-- The SBCL-backed runtime is a documented placeholder; full wiring is deferred to a later milestone.
-- The generated-code path supports scalar expressions with free variables. The default `scripts/generate-c-source.lisp` warm-cache now includes argumentized expressions such as `x^2 + y` and `x^2 + 5*x + 6`.
-- The generated-runtime fallback returns `SMC_ERR_INVALID` for null output and `SMC_ERR_NOT_IMPL` only when no generated table is linked; the generated dispatch table itself returns `SMC_ERR_NOT_FOUND` and `SMC_ERR_ARITY`.
-- Vector/matrix return values are not yet supported in generated C.
-- MSan has a CMake option but has not been exercised on the host compiler (GCC); verify with Clang.
-- The generated-code cross-check harness covers a handful of argumentized expressions; broaden it to many random combinations.
-- macOS/Windows install steps are not yet documented.
-
-> **Current status and next steps**: See [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) and [`docs/KNOWN-ISSUES.md`](docs/KNOWN-ISSUES.md).
-
-See [`docs/embedding-roadmap.md`](docs/embedding-roadmap.md), [`docs/integration-guide.md`](docs/integration-guide.md), and the active C API maturity plan in [`docs/c-api-maturity-plan.md`](docs/c-api-maturity-plan.md) for the full roadmap and integration details.
-
----
-
-## Performance Results
-
-The cache-aware evaluator now outperforms conventional evaluation on realistic workloads. Key optimizations:
-1. **Canonical AST interning + EQ hash table**: identical expressions share the same object, so cache lookups use fast pointer comparison instead of structural `EQUAL`.
-2. **Removed explicit AST rewriting**: the evaluator no longer builds an intermediate rewritten AST on every cache miss.
-3. **Vector/trigonometry modules**: realistic operations (dot products, cross products, trig) give the cache more expensive work to skip.
-
-### LONG series speedups (100,000 calculations)
-
-| Category | Speedup (LONG) |
-|---|---|
-| Arithmetic | **~1.0–1.9×** |
-| Dot Product | **2.3–8.0×** |
-| Cross Product | **2.3–8.3×** |
-| Trig | **2.3–5.4×** |
-| Polynomial | **1.8–8.6×** |
-| Mixed | **2.0–5.2×** |
-| Realistic Renderer | **5.0–8.0×** |
-| Matrix Multiply | **2.5–8.0×** |
-| Blinn-Phong | **3.5–5.5×** |
-
-Arithmetic remains the hardest category because the operations themselves are so cheap. The priority category, **realistic renderer**, now consistently exceeds the 5× minimum target. Dot, cross, polynomial, trig, matrix multiply, and Blinn-Phong are often above 5× but can be noisy; mixed is still the second-weakest realistic scenario. See `docs/notes/performance-profiling.md` for the full analysis and next candidate optimizations.
-
-Benchmarks now use CPU time (`get-internal-run-time`), GC isolation between phases, and multi-trial aggregation across random seeds. Short and medium series are measured by repeating each pass 100× and 10× respectively, then dividing by the repetition count; long series are the most reliable source of speedup numbers.
-
-See `docs/plan.md`, `docs/HANDOFF.md`, and `docs/notes/session-4-implementation-notes.md` for the full analysis and implementation details.
-
----
-
-## Installation
-
-### Prerequisites
-- **SBCL** (Steel Bank Common Lisp) — required runtime
-
-SBCL is required because the project relies on native compilation and runtime code generation (`compile`, `fdefinition`) to implement self-modification. The old `calculator.lsp` file is a CLISP-compatible legacy script and is not actively maintained.
-
-### Setup
-```bash
-git clone https://github.com/coco-is-magik/self-modifying-calculator.git
-cd self-modifying-calculator
-```
-
-## Usage
-
-### SBCL (new implementation)
-```bash
-# Using the run-calculator.sh wrapper:
-./scripts/run-calculator.sh "2+3*4"
-
-# Or invoke directly with ASDF from the project root:
-cd /path/to/self-modifying-calculator
-SBCL_HOME=/usr/lib64/sbcl sbcl --noinform \
-  --eval "(pushnew *default-pathname-defaults* asdf:*central-registry*)" \
-  --eval "(asdf:load-system :self-modifying-calculator)" \
-  --eval "(smc:main '(\"2+3*4\"))" \
-  --eval "(sb-ext:exit)"
-
-# Run the test suite:
-./scripts/run-tests.sh
-
-# Run the quick demo:
-./scripts/run-demo.sh
-
-# Run the full benchmark suite (long-running; output goes to /tmp):
-./scripts/run-benchmarks.sh
-
-# Run a single level with fewer trials:
-./scripts/run-benchmarks.sh --level l2 --trials 3
-```
-
-### CLISP (legacy backward-compatible calculator)
-```bash
-clisp calculator.lsp 5+7
-```
-
-> Note: `calculator.lsp` is preserved only for historical compatibility. New usage should use the SBCL-based scripts above.
-
----
-
-## Project Structure
-
-```
-self-modifying-calculator/
-├── docs/
-│   ├── plan.md              # Full architectural plan (source of truth)
-│   ├── HANDOFF.md           # Session-by-session development log
-│   ├── CHANGELOG.md         # Change history (created)
-│   ├── KNOWN-ISSUES.md      # Open gaps and technical debt
-│   └── notes/               # Detailed implementation notes
-├── src/
-│   ├── core/                 # Engine: AST, cache, evaluator, optimizer
-│   ├── math/                 # Pluggable math modules
-│   ├── interface/            # CLI and parser
-│   └── main.lisp             # Entry point
-├── tests/                    # Test suites
-├── cache/                    # Persistent cache data
-├── scripts/                  # Convenience bash scripts (tests, benchmarks, demo)
-│   ├── README.md
-│   ├── run-calculator.sh
-│   ├── run.sh
-│   ├── run-tests.sh
-│   ├── run-benchmarks.sh
-│   ├── run-demo.sh
-│   └── run-linter.sh
-├── calculator.lsp            # Current CLISP calculator (backward compat)
-├── README.md
-└── LICENSE
-```
-
----
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

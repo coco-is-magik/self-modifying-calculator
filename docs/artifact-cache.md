@@ -250,7 +250,7 @@ For dense array data where each element has a stable integer index (renderers, E
 ```c
 smc_state_indexed_config_t config = {
     .count = 41600,          // Number of indexed slots
-    .state_size = 8,         // Size of each state record
+    .state_size = 8,          // Size of each state record
     .memory_budget_bytes = 0   // Auto-computed if 0
 };
 smc_state_indexed_configure(ctx, &config);
@@ -276,3 +276,12 @@ If `dirty_indices` is NULL and capacity is 0, the function still updates state a
 ### 8.5 Renderer Lesson
 
 For dense grids (e.g., terminal-style renderers with 260×160 cells), the hash-based generic state tracking can be too expensive. The indexed/batch APIs avoid hashing and per-cell key comparison, providing a fast path comparable to hand-written dirty tracking.
+
+Typical benchmark results for 41,600 records with 8-byte state structs:
+
+| Operation | Generic ns/op | Indexed ns/op | Batch ns/op |
+|-----------|---------------|---------------|-------------|
+| Unchanged | ~250-320      | ~30           | ~15-40      |
+| Changed   | ~600-2100     | ~40           | ~15-60      |
+
+The indexed unchanged path is typically 6-10x faster than the generic path. The batch path provides additional speedup by reducing per-call overhead.
