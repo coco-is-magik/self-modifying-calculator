@@ -60,4 +60,44 @@ int smc_state_table_check(smc_state_table_t *table,
 /* Clear all entries. */
 int smc_state_table_clear(smc_state_table_t *table);
 
+/* -------------------------------------------------------------------------- */
+/* Indexed-state tracking (ABI v2.1)                                            */
+/* -------------------------------------------------------------------------- */
+
+/* Indexed state table for dense integer-indexed state tracking */
+typedef struct {
+    unsigned char *states;    /* Contiguous state buffer: states[count * state_size] */
+    uint8_t       *valid;    /* Validity flags: valid[count] (uint8_t to save space) */
+    size_t         count;     /* Number of indexed slots */
+    size_t         state_size; /* Size of each state record in bytes */
+    int            configured; /* Has configure been called? */
+    smc_state_indexed_stats_t *stats; /* Pointer to stats (in context) */
+} smc_indexed_state_table_t;
+
+/* Initialize an indexed state table with the given configuration. */
+int smc_indexed_state_table_init(smc_indexed_state_table_t *table,
+                                   const smc_state_indexed_config_t *config,
+                                   smc_state_indexed_stats_t *stats);
+
+/* Destroy an indexed state table, freeing all memory. */
+void smc_indexed_state_table_destroy(smc_indexed_state_table_t *table);
+
+/* Check if state changed for a given index. Returns SMC_OK, sets *out_changed. */
+int smc_indexed_state_table_check(smc_indexed_state_table_t *table,
+                                   uint32_t index,
+                                   const void *state, size_t state_size,
+                                   int *out_changed);
+
+/* Clear all entries. */
+int smc_indexed_state_table_clear(smc_indexed_state_table_t *table);
+
+/* Process a batch of indexed states. Returns SMC_OK. */
+int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
+                                        const void *states,
+                                        size_t count,
+                                        size_t stride,
+                                        uint32_t *dirty_indices,
+                                        size_t dirty_capacity,
+                                        size_t *out_dirty_count);
+
 #endif /* SMC_STATE_H */

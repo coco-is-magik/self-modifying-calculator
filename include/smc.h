@@ -119,6 +119,7 @@ extern "C" {
 
 #define SMC_FEATURE_ARTIFACT_CACHE 0x00000001u
 #define SMC_FEATURE_STATE_TRACKING 0x00000002u
+#define SMC_FEATURE_INDEXED_STATE_TRACKING 0x00000004u
 
 /* -------------------------------------------------------------------------- */
 /* Error codes                                                                */
@@ -222,6 +223,26 @@ typedef struct {
     uint64_t evictions;      /* direct-mapped collisions causing eviction */
     uint64_t bytes_compared;
 } smc_state_stats_t;
+
+/* -------------------------------------------------------------------------- */
+/* Indexed-state configuration and statistics (ABI v2.1)                        */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    size_t count;               /* number of indexed slots */
+    size_t state_size;          /* size of each state record in bytes */
+    size_t memory_budget_bytes; /* total memory budget (0 = computed default) */
+} smc_state_indexed_config_t;
+
+typedef struct {
+    uint64_t checks;
+    uint64_t changed;
+    uint64_t unchanged;
+    uint64_t stores;
+    uint64_t bytes_compared;
+    uint64_t out_of_range;    /* index >= count */
+    uint64_t clears;
+} smc_state_indexed_stats_t;
 
 /* -------------------------------------------------------------------------- */
 /* Introspection                                                              */
@@ -440,6 +461,63 @@ SMC_API int smc_state_clear(smc_context_t *ctx);
 /* Get/reset state tracking statistics. */
 SMC_API int smc_state_get_stats(smc_context_t *ctx, smc_state_stats_t *out);
 SMC_API int smc_state_reset_stats(smc_context_t *ctx);
+
+/* -------------------------------------------------------------------------- */
+/* Indexed-state tracking (ABI v2.1)                                              */
+/* -------------------------------------------------------------------------- */
+
+/* Configure the indexed dirty-state tracker for a context.  Must be called before
+ * any indexed state operations.  Independent of both artifact and generic state
+ * configuration.  Returns SMC_ERR_CAPACITY if configuration exceeds memory budget.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid; config is non-NULL.
+ * Thread safety: not thread-safe; call once per context before multi-threaded use. */
+SMC_API int smc_state_indexed_configure(smc_context_t *ctx,
+                                         const smc_state_indexed_config_t *config);
+
+/* Check if state has changed for a given index.  Uses direct indexing without
+ * hashing.  Returns SMC_ERR_SIZE if state_size does not match configuration.
+ *
+ * First observation of an index returns changed=1 and stores the state.
+ * Same index and same bytes returns changed=0.
+ * Same index and different bytes returns changed=1 and updates stored state.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid; config is non-NULL;
+ * out_changed is non-NULL.
+ * Thread safety: externally synchronized in v1. */
+SMC_API int smc_state_changed_index(smc_context_t *ctx,
+                                     uint32_t index,
+                                     const void *state,
+                                     size_t state_size,
+                                     int *out_changed);
+
+/* Clear all indexed state.  Resets all validity flags. */
+SMC_API int smc_state_indexed_clear(smc_context_t *ctx);
+
+/* Get/reset indexed state tracking statistics. */
+SMC_API int smc_state_indexed_get_stats(smc_context_t *ctx,
+                                          smc_state_indexed_stats_t *out);
+SMC_API int smc_state_indexed_reset_stats(smc_context_t *ctx);
+
+/* Process a batch of indexed states in one call.
+ *
+ * Compares each record against the corresponding indexed slot.  Record i maps to
+ * index i.  If count > configured count, returns SMC_ERR_SIZE.
+ *
+ * If dirty_indices is NULL and dirty_capacity is 0, updates state and counts
+ * changes but does not write indices.
+ *
+ * If dirty_indices is NULL and dirty_capacity > 0, returns SMC_ERR_INVALID.
+ *
+ * Preconditions: smc_init() has succeeded; ctx is valid; out_dirty_count is non-NULL.
+ * Thread safety: externally synchronized in v1. */
+SMC_API int smc_state_diff_indexed_batch(smc_context_t *ctx,
+                                          const void *states,
+                                          size_t count,
+                                          size_t stride,
+                                          uint32_t *dirty_indices,
+                                          size_t dirty_capacity,
+                                          size_t *out_dirty_count);
 
 /* -------------------------------------------------------------------------- */
 /* Source generation (build-time optimizer output)                            */

@@ -92,7 +92,7 @@ static void smc_variable_table_init(struct smc_variable_table *vt) {
 }
 
 static int smc_variable_table_set(struct smc_variable_table *vt,
-                                  const char *name, double value) {
+                                   const char *name, double value) {
     if (!name) {
         return SMC_ERR_INVALID;
     }
@@ -116,7 +116,7 @@ static int smc_variable_table_set(struct smc_variable_table *vt,
 }
 
 static int smc_variable_table_get(struct smc_variable_table *vt,
-                                  const char *name, double *out) {
+                                   const char *name, double *out) {
     if (!name || !out) {
         return SMC_ERR_INVALID;
     }
@@ -143,10 +143,13 @@ struct smc_context {
     struct smc_variable_table variables;
     smc_artifact_table_t artifact_table;
     smc_state_table_t state_table;
+    smc_indexed_state_table_t indexed_state_table;
     smc_artifact_stats_t artifact_stats;
     smc_state_stats_t state_stats;
+    smc_state_indexed_stats_t indexed_state_stats;
     int artifact_configured;
     int state_configured;
+    int indexed_state_configured;
 };
 
 static smc_context_t g_global_context = {0};
@@ -181,6 +184,7 @@ int smc_init(void) {
     smc_variable_table_init(&g_global_context.variables);
     g_global_context.artifact_configured = 0;
     g_global_context.state_configured = 0;
+    g_global_context.indexed_state_configured = 0;
     smc_set_error(SMC_OK, NULL);
     SMC_UNLOCK_GLOBAL();
     return SMC_OK;
@@ -205,8 +209,10 @@ smc_context_t *smc_context_create(int level) {
     smc_variable_table_init(&ctx->variables);
     ctx->artifact_configured = 0;
     ctx->state_configured = 0;
+    ctx->indexed_state_configured = 0;
     memset(&ctx->artifact_stats, 0, sizeof(ctx->artifact_stats));
     memset(&ctx->state_stats, 0, sizeof(ctx->state_stats));
+    memset(&ctx->indexed_state_stats, 0, sizeof(ctx->indexed_state_stats));
     return ctx;
 }
 
@@ -214,6 +220,7 @@ void smc_context_destroy(smc_context_t *ctx) {
     if (ctx) {
         smc_artifact_table_destroy(&ctx->artifact_table);
         smc_state_table_destroy(&ctx->state_table);
+        smc_indexed_state_table_destroy(&ctx->indexed_state_table);
         free(ctx);
     }
 }
@@ -521,7 +528,7 @@ int smc_eval_int_with(smc_context_t *ctx, const char *expr, int64_t *out) {
 /* -------------------------------------------------------------------------- */
 
 __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
-                    const double *args, size_t argc, double *out) {
+                     const double *args, size_t argc, double *out) {
     (void)expr_id; (void)args; (void)argc; (void)out;
     smc_stats_increment(&g_stats->total_calls);
     smc_stats_increment(&g_stats->fallback_evals);
@@ -530,7 +537,7 @@ __attribute__((weak)) int smc_call_double(smc_expr_id_t expr_id,
 }
 
 __attribute__((weak)) int smc_call_float(smc_expr_id_t expr_id,
-                   const float *args, size_t argc, float *out) {
+                    const float *args, size_t argc, float *out) {
     (void)expr_id; (void)args; (void)argc; (void)out;
     smc_stats_increment(&g_stats->total_calls);
     smc_stats_increment(&g_stats->fallback_evals);
@@ -836,6 +843,104 @@ int smc_state_reset_stats(smc_context_t *ctx) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Indexed-state tracking (ABI v2.1)                                              */
+/* -------------------------------------------------------------------------- */
+
+int smc_state_indexed_configure(smc_context_t *ctx,
+                                 const smc_state_indexed_config_t *config) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!config) {
+        smc_set_error(SMC_ERR_INVALID, "null config");
+        return SMC_ERR_INVALID;
+    }
+    if (ctx->indexed_state_configured) {
+        smc_set_error(SMC_ERR_INVALID, "indexed state tracker already configured");
+        return SMC_ERR_INVALID;
+    }
+    
+    int rc = smc_indexed_state_table_init(&ctx->indexed_state_table, config,
+                                           &ctx->indexed_state_stats);
+    if (rc == SMC_OK) {
+        ctx->indexed_state_configured = 1;
+    }
+    return rc;
+}
+
+int smc_state_changed_index(smc_context_t *ctx,
+                              uint32_t index,
+                              const void *state,
+                              size_t state_size,
+                              int *out_changed) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->indexed_state_configured) {
+        smc_set_error(SMC_ERR_INIT, "indexed state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_indexed_state_table_check(&ctx->indexed_state_table, index,
+                                          state, state_size, out_changed);
+}
+
+int smc_state_indexed_clear(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->indexed_state_configured) {
+        smc_set_error(SMC_ERR_INIT, "indexed state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_indexed_state_table_clear(&ctx->indexed_state_table);
+}
+
+int smc_state_indexed_get_stats(smc_context_t *ctx, smc_state_indexed_stats_t *out) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!out) {
+        smc_set_error(SMC_ERR_INVALID, "null stats output");
+        return SMC_ERR_INVALID;
+    }
+    *out = ctx->indexed_state_stats;
+    return SMC_OK;
+}
+
+int smc_state_indexed_reset_stats(smc_context_t *ctx) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    memset(&ctx->indexed_state_stats, 0, sizeof(ctx->indexed_state_stats));
+    return SMC_OK;
+}
+
+int smc_state_diff_indexed_batch(smc_context_t *ctx,
+                                   const void *states,
+                                   size_t count,
+                                   size_t stride,
+                                   uint32_t *dirty_indices,
+                                   size_t dirty_capacity,
+                                   size_t *out_dirty_count) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->indexed_state_configured) {
+        smc_set_error(SMC_ERR_INIT, "indexed state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_indexed_state_table_diff_batch(&ctx->indexed_state_table, states,
+                                               count, stride, dirty_indices,
+                                               dirty_capacity, out_dirty_count);
+}
+
+/* -------------------------------------------------------------------------- */
 /* Introspection                                                              */
 /* -------------------------------------------------------------------------- */
 
@@ -848,7 +953,8 @@ const char *smc_runtime_kind(void) {
 }
 
 uint32_t smc_features(void) {
-    return SMC_FEATURE_ARTIFACT_CACHE | SMC_FEATURE_STATE_TRACKING;
+    return SMC_FEATURE_ARTIFACT_CACHE | SMC_FEATURE_STATE_TRACKING
+           | SMC_FEATURE_INDEXED_STATE_TRACKING;
 }
 
 /* -------------------------------------------------------------------------- */

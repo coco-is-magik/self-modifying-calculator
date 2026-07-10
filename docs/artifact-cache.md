@@ -206,6 +206,9 @@ if (features & SMC_FEATURE_ARTIFACT_CACHE) {
 if (features & SMC_FEATURE_STATE_TRACKING) {
     // Dirty-state tracking available
 }
+if (features & SMC_FEATURE_INDEXED_STATE_TRACKING) {
+    // Indexed-state tracking available (v2.1)
+}
 ```
 
 ---
@@ -229,3 +232,47 @@ Users must measure hit rate and operation cost in their own applications:
 - Check `smc_artifact_stats_t.hits` vs `lookups`
 - Check `smc_state_stats_t.changed` vs `checks`
 - SMC does not automatically speed up renderers; it provides the primitives for users to build their own optimization layers.
+
+---
+
+## 8. Indexed-State Tracking for Dense Arrays
+
+For dense array data where each element has a stable integer index (renderers, ECS, tile maps, particle systems), use the indexed state API. It avoids hashing and key comparison overhead, achieving significantly better performance than the generic API.
+
+### 8.1 When to Use
+
+- **Generic `smc_state_changed()`**: Sparse data with arbitrary binary keys
+- **Indexed `smc_state_changed_index()`**: Dense arrays with stable integer indices (0 to count-1)
+- **Batch `smc_state_diff_indexed_batch()`**: Many dense records checked every frame/tick
+
+### 8.2 Configuration
+
+```c
+smc_state_indexed_config_t config = {
+    .count = 41600,          // Number of indexed slots
+    .state_size = 8,         // Size of each state record
+    .memory_budget_bytes = 0   // Auto-computed if 0
+};
+smc_state_indexed_configure(ctx, &config);
+```
+
+### 8.3 Scalar Operations
+
+```c
+int changed = 0;
+smc_state_changed_index(ctx, index, &state, sizeof(state), &changed);
+```
+
+### 8.4 Batch Operations
+
+```c
+size_t dirty_count = 0;
+smc_state_diff_indexed_batch(ctx, states, count, stride,
+                              dirty_indices, capacity, &dirty_count);
+```
+
+If `dirty_indices` is NULL and capacity is 0, the function still updates state and counts changes.
+
+### 8.5 Renderer Lesson
+
+For dense grids (e.g., terminal-style renderers with 260×160 cells), the hash-based generic state tracking can be too expensive. The indexed/batch APIs avoid hashing and per-cell key comparison, providing a fast path comparable to hand-written dirty tracking.

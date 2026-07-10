@@ -246,6 +246,14 @@ if(SMC_BUILD_TESTS)
     endif()
     add_test(NAME test_state_tracking COMMAND test_state_tracking)
     
+    add_executable(test_indexed_state tests/c/test_indexed_state.c)
+    if(SMC_BUILD_STATIC)
+        target_link_libraries(test_indexed_state PRIVATE smc_static)
+    else()
+        target_link_libraries(test_indexed_state PRIVATE smc_shared)
+    endif()
+    add_test(NAME test_indexed_state COMMAND test_indexed_state)
+    
     add_test(NAME test_stub_runtime COMMAND test_stub_runtime)
 
     if(SMC_GENERATED_SOURCE)
@@ -311,6 +319,10 @@ endif()
 # ---------------------------------------------------------------------------
 # Benchmarks
 # ---------------------------------------------------------------------------
+# Indexed state benchmark does not require generated dispatch table
+add_executable(benchmark_indexed_state tests/benchmarks/benchmark_indexed_state.c)
+smc_link_executable(benchmark_indexed_state)
+
 if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)
     add_executable(benchmark_generated tests/benchmarks/benchmark_generated.c)
     smc_link_executable(benchmark_generated)

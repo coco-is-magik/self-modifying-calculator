@@ -34,6 +34,7 @@ __all__ = [
     "features",
     "SMC_FEATURE_ARTIFACT_CACHE",
     "SMC_FEATURE_STATE_TRACKING",
+    "SMC_FEATURE_INDEXED_STATE_TRACKING",
     "SMC_OK",
     "SMC_ERR_NOT_FOUND",
     "eval",
@@ -62,12 +63,19 @@ __all__ = [
     "state_clear",
     "state_get_stats",
     "state_reset_stats",
+    "state_indexed_configure",
+    "state_changed_index",
+    "state_indexed_clear",
+    "state_indexed_get_stats",
+    "state_indexed_reset_stats",
+    "state_diff_indexed_batch",
     "get_stats",
     "reset_stats",
     "SMCError",
     "SMCStats",
     "SMCArtifactStats",
     "SMCStateStats",
+    "SMCStateIndexedStats",
 ]
 
 SMC_FEATURE_ARTIFACT_CACHE = 0x01
@@ -103,6 +111,14 @@ class _smc_state_config_t(ctypes.Structure):
         ("max_entries", c_size_t),
         ("max_key_size", c_size_t),
         ("max_state_size", c_size_t),
+        ("memory_budget_bytes", c_size_t),
+    ]
+
+
+class _smc_state_indexed_config_t(ctypes.Structure):
+    _fields_ = [
+        ("count", c_size_t),
+        ("state_size", c_size_t),
         ("memory_budget_bytes", c_size_t),
     ]
 
@@ -143,6 +159,18 @@ class _smc_state_stats_t(ctypes.Structure):
         ("stores", c_uint64),
         ("evictions", c_uint64),
         ("bytes_compared", c_uint64),
+    ]
+
+
+class _smc_state_indexed_stats_t(ctypes.Structure):
+    _fields_ = [
+        ("checks", c_uint64),
+        ("changed", c_uint64),
+        ("unchanged", c_uint64),
+        ("stores", c_uint64),
+        ("bytes_compared", c_uint64),
+        ("out_of_range", c_uint64),
+        ("clears", c_uint64),
     ]
 
 
@@ -268,6 +296,20 @@ class _LibSMC:
         self._lib.smc_state_get_stats.argtypes = [ctypes.c_void_p, ctypes.POINTER(_smc_state_stats_t)]
         self._lib.smc_state_reset_stats.restype = c_int
         self._lib.smc_state_reset_stats.argtypes = [ctypes.c_void_p]
+
+        # Indexed state tracking
+        self._lib.smc_state_indexed_configure.restype = c_int
+        self._lib.smc_state_indexed_configure.argtypes = [ctypes.c_void_p, ctypes.POINTER(_smc_state_indexed_config_t)]
+        self._lib.smc_state_changed_index.restype = c_int
+        self._lib.smc_state_changed_index.argtypes = [ctypes.c_void_p, c_uint32, ctypes.c_void_p, c_size_t, ctypes.POINTER(c_int)]
+        self._lib.smc_state_indexed_clear.restype = c_int
+        self._lib.smc_state_indexed_clear.argtypes = [ctypes.c_void_p]
+        self._lib.smc_state_indexed_get_stats.restype = c_int
+        self._lib.smc_state_indexed_get_stats.argtypes = [ctypes.c_void_p, ctypes.POINTER(_smc_state_indexed_stats_t)]
+        self._lib.smc_state_indexed_reset_stats.restype = c_int
+        self._lib.smc_state_indexed_reset_stats.argtypes = [ctypes.c_void_p]
+        self._lib.smc_state_diff_indexed_batch.restype = c_int
+        self._lib.smc_state_diff_indexed_batch.argtypes = [ctypes.c_void_p, ctypes.c_void_p, c_size_t, c_size_t, ctypes.POINTER(c_uint32), c_size_t, ctypes.POINTER(c_size_t)]
 
         # Observability
         self._lib.smc_get_stats.restype = c_int
@@ -478,6 +520,20 @@ class SMCStateStats:
         return f"SMCStateStats(checks={self.checks}, changed={self.changed}, ...)"
 
 
+class SMCStateIndexedStats:
+    def __init__(self, raw) -> None:
+        self.checks = raw.checks
+        self.changed = raw.changed
+        self.unchanged = raw.unchanged
+        self.stores = raw.stores
+        self.bytes_compared = raw.bytes_compared
+        self.out_of_range = raw.out_of_range
+        self.clears = raw.clears
+
+    def __repr__(self) -> str:
+        return f"SMCStateIndexedStats(checks={self.checks}, changed={self.changed}, ...)"
+
+
 class Context:
     def __init__(self, level: int = 1) -> None:
         self._lib = _LibSMC()
@@ -630,6 +686,58 @@ def state_reset_stats(ctx) -> None:
     lib = _LibSMC()
     rc = lib._lib.smc_state_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx)
     lib._check(rc)
+
+
+def state_indexed_configure(ctx, config: dict) -> None:
+    lib = _LibSMC()
+    c_config = _smc_state_indexed_config_t()
+    if config:
+        c_config.count = config.get("count", 0)
+        c_config.state_size = config.get("state_size", 0)
+        c_config.memory_budget_bytes = config.get("memory_budget_bytes", 0)
+    rc = lib._lib.smc_state_indexed_configure(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(c_config))
+    lib._check(rc)
+
+
+def state_changed_index(ctx, index: int, state: bytes) -> bool:
+    lib = _LibSMC()
+    out_changed = c_int()
+    rc = lib._lib.smc_state_changed_index(ctx._ctx if isinstance(ctx, Context) else ctx, c_uint32(index), state, len(state), ctypes.byref(out_changed))
+    lib._check(rc)
+    return bool(out_changed.value)
+
+
+def state_indexed_clear(ctx) -> None:
+    lib = _LibSMC()
+    rc = lib._lib.smc_state_indexed_clear(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
+
+
+def state_indexed_get_stats(ctx) -> SMCStateIndexedStats:
+    lib = _LibSMC()
+    raw = _smc_state_indexed_stats_t()
+    rc = lib._lib.smc_state_indexed_get_stats(ctx._ctx if isinstance(ctx, Context) else ctx, ctypes.byref(raw))
+    lib._check(rc)
+    return SMCStateIndexedStats(raw)
+
+
+def state_indexed_reset_stats(ctx) -> None:
+    lib = _LibSMC()
+    rc = lib._lib.smc_state_indexed_reset_stats(ctx._ctx if isinstance(ctx, Context) else ctx)
+    lib._check(rc)
+
+
+def state_diff_indexed_batch(ctx, states: bytes, count: int, stride: int, dirty_capacity: int) -> tuple:
+    lib = _LibSMC()
+    dirty_indices = (c_uint32 * dirty_capacity)() if dirty_capacity > 0 else None
+    out_dirty_count = c_size_t()
+    rc = lib._lib.smc_state_diff_indexed_batch(ctx._ctx if isinstance(ctx, Context) else ctx, states, count, stride, dirty_indices, dirty_capacity, ctypes.byref(out_dirty_count))
+    lib._check(rc)
+    if dirty_indices:
+        result = bytes(dirty_indices[:out_dirty_count.value])
+    else:
+        result = b""
+    return result, out_dirty_count.value
 
 
 def get_stats() -> SMCStats:
