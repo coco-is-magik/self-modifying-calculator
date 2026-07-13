@@ -72,6 +72,20 @@ if(SMC_BUILD_STATIC)
         $<INSTALL_INTERFACE:include>
     )
     target_link_libraries(smc_static PUBLIC m)
+
+    # Generic-only variant for benchmarking fixed-size kernels against the
+    # public API baseline.  This compiles smc_state.c with fixed kernels disabled.
+    add_library(smc_static_generic STATIC ${SMC_RUNTIME_SOURCES})
+    set_target_properties(smc_static_generic PROPERTIES
+        OUTPUT_NAME smc_generic
+        C_VISIBILITY_PRESET hidden
+    )
+    target_include_directories(smc_static_generic PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(smc_static_generic PUBLIC m)
+    target_compile_definitions(smc_static_generic PRIVATE SMC_DISABLE_FIXED_BATCH_KERNELS)
 endif()
 
 if(SMC_BUILD_SHARED)
@@ -322,6 +336,21 @@ endif()
 # Indexed state benchmark does not require generated dispatch table
 add_executable(benchmark_indexed_state tests/benchmarks/benchmark_indexed_state.c)
 smc_link_executable(benchmark_indexed_state)
+
+# Generic-only baseline variant for fair comparison with fixed-size kernels.
+# This links against smc_static_generic, which disables fixed kernels.
+if(SMC_BUILD_STATIC)
+    add_executable(benchmark_indexed_baseline tests/benchmarks/benchmark_indexed_state.c)
+    target_include_directories(benchmark_indexed_baseline PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    )
+    target_compile_definitions(benchmark_indexed_baseline PRIVATE SMC_DISABLE_FIXED_BATCH_KERNELS)
+    if(SMC_GENERATED_SOURCE)
+        target_link_libraries(benchmark_indexed_baseline PRIVATE smc_generated_static smc_static_generic)
+    else()
+        target_link_libraries(benchmark_indexed_baseline PRIVATE smc_static_generic)
+    endif()
+endif()
 
 if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)
     add_executable(benchmark_generated tests/benchmarks/benchmark_generated.c)

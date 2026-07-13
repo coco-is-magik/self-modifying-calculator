@@ -285,3 +285,63 @@ Typical benchmark results for 41,600 records with 8-byte state structs:
 | Changed   | ~600-2100     | ~40           | ~15-60      |
 
 The indexed unchanged path is typically 6-10x faster than the generic path. The batch path provides additional speedup by reducing per-call overhead.
+
+## 9. Optimized Fixed-Size Batch Kernels (v2.2)
+
+The batch API (`smc_state_diff_indexed_batch`) includes optimized internal kernels for common small state sizes: 1, 2, 4, and 8 bytes. These kernels use `memcpy`-based loads and stores so they remain safe for unaligned input and strictly conforming C99. They are treated as performance candidates; any size that does not beat the generic `memcmp`/`memcpy` baseline by at least 5% falls back to the generic path.
+
+### 9.1 When Kernels Help
+
+Power-of-two sizes (1, 2, 4, and 8 bytes) benefit because the compiler can reduce the comparison to a single integer equality check. The 16-byte candidate was evaluated but did not meet the 5% improvement threshold reliably, so it uses the generic fallback. Non-power-of-two sizes such as 7 or 12 bytes also use the generic byte-by-byte fallback.
+
+### 9.2 Recommended State Representation
+
+Pass compact, deterministic state values such as `uint64_t` arrays. Avoid padded structs with uninitialized padding bytes, because padding can cause false-positive change detection.
+
+Example transformation:
+
+```c
+/* AVOID: struct with implicit padding */
+typedef struct {
+    uint16_t glyph_id;   /* 2 bytes */
+    uint16_t flags;      /* 2 bytes */
+    uint32_t color;      /* 4 bytes */
+} CellState;             /* 8 bytes total, but padding is possible */
+
+CellState states[41600];
+/* If any padding byte is not explicitly zeroed, smc_state_diff_indexed_batch
+ * may report spurious changes. */
+
+/* GOOD: explicit uint64_t packing */
+uint64_t states[41600];
+for (size_t i = 0; i < 41600; i++) {
+    uint16_t glyph_id = ...;
+    uint16_t flags    = ...;
+    uint32_t color    = ...;
+    states[i] = ((uint64_t)glyph_id << 0)  |
+                ((uint64_t)flags    << 16) |
+                ((uint64_t)color    << 32);
+}
+```
+
+This representation:
+- Enables the 8-byte fixed-size kernel.
+- Eliminates padding-related false positives.
+- Keeps the comparison as a single integer operation.
+
+### 9.3 Measuring Kernel Performance
+
+Build both the fixed-kernel and generic-only benchmark targets:
+
+```bash
+cmake -B build -S . -DSMC_GENERATED_SOURCE=/path/to/build/smc_generated.c
+cmake --build build --target benchmark_indexed_state benchmark_indexed_baseline
+./build/benchmark_indexed_state
+./build/benchmark_indexed_baseline
+```
+
+Both executables run the same public API benchmark. The baseline executable links against a library built with `SMC_DISABLE_FIXED_BATCH_KERNELS`, so it always uses the generic `memcmp`/`memcpy` path. Each executable reports median ns/op across 3 internal passes. Compare the two outputs to measure the improvement of the fixed-size kernels against the real public API baseline.
+
+### 9.4 Generality Guarantee
+
+The public API is unchanged. Arbitrary state sizes continue to use the generic `memcmp`/`memcpy` fallback. The fixed-size kernels are an internal optimization and do not affect portability, alignment safety, or API semantics.

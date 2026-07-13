@@ -7,6 +7,7 @@
  *   - generic changed path
  *   - indexed changed path
  *   - batch changed path
+ *   - fixed-size batch kernels vs generic reference loop
  *
  * Build: cmake -B build && cmake --build build --target benchmark_indexed_state
  * Run with:   ./build/benchmark_indexed_state
@@ -24,11 +25,63 @@
 #define STATE_SIZE 8
 #define NUM_ITERATIONS 10000
 
+/* State sizes to evaluate for the fixed-size kernel matrix */
+static const size_t MATRIX_SIZES[] = {1, 2, 4, 8, 16, 7, 12, 24, 32};
+static const size_t MATRIX_SIZE_COUNT = sizeof(MATRIX_SIZES) / sizeof(MATRIX_SIZES[0]);
+
+/* Change rates to evaluate (percentage of records changed) */
+static const int CHANGE_RATES[] = {0, 1, 10, 50, 100};
+static const size_t CHANGE_RATE_COUNT = sizeof(CHANGE_RATES) / sizeof(CHANGE_RATES[0]);
+
 /* Get monotonic time in nanoseconds */
 static uint64_t get_ns(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+}
+
+/* Fill a buffer with deterministic state records. */
+static void fill_states(void *buffer, size_t count, size_t state_size, size_t stride) {
+    unsigned char *base = (unsigned char *)buffer;
+    for (size_t i = 0; i < count; i++) {
+        unsigned char *slot = base + i * stride;
+        memset(slot, 0, stride);
+        if (state_size == 1) {
+            slot[0] = (uint8_t)(i & 0xFF);
+        } else if (state_size == 2) {
+            uint16_t val = (uint16_t)i;
+            memcpy(slot, &val, 2);
+        } else if (state_size == 4) {
+            uint32_t val = (uint32_t)i;
+            memcpy(slot, &val, 4);
+        } else if (state_size == 8) {
+            uint64_t val = (uint64_t)i;
+            memcpy(slot, &val, 8);
+        } else if (state_size == 16) {
+            uint64_t lo = (uint64_t)i;
+            uint64_t hi = (uint64_t)(i + 1);
+            memcpy(slot, &lo, 8);
+            memcpy(slot + 8, &hi, 8);
+        } else {
+            /* Generic sizes: fill with deterministic byte pattern */
+            for (size_t b = 0; b < state_size; b++) {
+                slot[b] = (uint8_t)((i + b) & 0xFF);
+            }
+        }
+    }
+}
+
+/* Modify a percentage of records in the buffer. */
+static void modify_states(void *buffer, size_t count, size_t state_size, size_t stride, int percent) {
+    unsigned char *base = (unsigned char *)buffer;
+    for (size_t i = 0; i < count; i++) {
+        if ((i * 100) / count < (size_t)percent) {
+            unsigned char *slot = base + i * stride;
+            for (size_t b = 0; b < state_size; b++) {
+                slot[b] = (unsigned char)(slot[b] ^ 0xFF);
+            }
+        }
+    }
 }
 
 int main(void) {
@@ -202,8 +255,119 @@ int main(void) {
     free(changed_states);
     
     smc_context_destroy(ctx);
+    
+    /* ---------------------------------------------------------------------- */
+    /* Fixed-size kernel matrix                                               */
+    /* ---------------------------------------------------------------------- */
+#ifdef SMC_DISABLE_FIXED_BATCH_KERNELS
+    printf("\nFixed-size kernel matrix: GENERIC-ONLY BASELINE (records=%d)\n", NUM_RECORDS);
+#else
+    printf("\nFixed-size kernel matrix: FIXED KERNELS ENABLED (records=%d)\n", NUM_RECORDS);
+#endif
+    printf("state_size | change_rate | median_ns | total_ms | dirty_count | checks | changed | unchanged | stores | bytes_compared\n");
+    printf("-----------|-------------|-----------|----------|-------------|--------|---------|-----------|--------|---------------\n");
+    
+    for (size_t s = 0; s < MATRIX_SIZE_COUNT; s++) {
+        size_t state_size = MATRIX_SIZES[s];
+        size_t stride = state_size;
+        size_t buffer_size = NUM_RECORDS * stride;
+        
+        uint8_t *matrix_states = (uint8_t *)malloc(buffer_size);
+        if (!matrix_states) {
+            fprintf(stderr, "FAIL: out of memory for matrix states\n");
+            return 1;
+        }
+        
+        smc_context_t *matrix_ctx = smc_context_create(1);
+        if (!matrix_ctx) {
+            free(matrix_states);
+            fprintf(stderr, "FAIL: context create for matrix\n");
+            return 1;
+        }
+        
+        smc_state_indexed_config_t matrix_config = {
+            .count = NUM_RECORDS,
+            .state_size = state_size,
+            .memory_budget_bytes = 0
+        };
+        rc = smc_state_indexed_configure(matrix_ctx, &matrix_config);
+        if (rc != SMC_OK) {
+            free(matrix_states);
+            smc_context_destroy(matrix_ctx);
+            fprintf(stderr, "FAIL: indexed state configure for matrix size %zu\n", state_size);
+            return 1;
+        }
+        
+        for (size_t r = 0; r < CHANGE_RATE_COUNT; r++) {
+            int change_rate = CHANGE_RATES[r];
+            double pass_ns[3];
+            
+            for (int pass = 0; pass < 3; pass++) {
+                /* Reset state and fill with deterministic values */
+                smc_state_indexed_clear(matrix_ctx);
+                fill_states(matrix_states, NUM_RECORDS, state_size, stride);
+                
+                /* First observation: all changed */
+                size_t first_dirty = 0;
+                smc_state_diff_indexed_batch(matrix_ctx, matrix_states, NUM_RECORDS, stride,
+                                             NULL, 0, &first_dirty);
+                
+                /* Modify the requested percentage for steady-state observation.
+                 * We will toggle these records each iteration so the change rate
+                 * is sustained across the timed loop. */
+                if (change_rate > 0) {
+                    modify_states(matrix_states, NUM_RECORDS, state_size, stride, change_rate);
+                }
+                
+                /* Benchmark public API (fixed kernel or generic fallback).
+                 * Each iteration toggles the modified records so the requested
+                 * percentage stays dirty, matching a steady-state changed workload. */
+                const int MATRIX_ITERATIONS = 100;
+                uint64_t kernel_start = get_ns();
+                for (int iter = 0; iter < MATRIX_ITERATIONS; iter++) {
+                    size_t dirty_count = 0;
+                    smc_state_diff_indexed_batch(matrix_ctx, matrix_states, NUM_RECORDS, stride,
+                                                 NULL, 0, &dirty_count);
+                    if (change_rate > 0) {
+                        modify_states(matrix_states, NUM_RECORDS, state_size, stride, change_rate);
+                    }
+                }
+                uint64_t kernel_elapsed = get_ns() - kernel_start;
+                pass_ns[pass] = (double)kernel_elapsed / (MATRIX_ITERATIONS * NUM_RECORDS);
+            }
+            
+            /* Compute median of 3 passes */
+            double median_ns = pass_ns[0];
+            if (pass_ns[1] < median_ns) median_ns = pass_ns[1];
+            if (pass_ns[2] < median_ns) median_ns = pass_ns[2];
+            if (pass_ns[1] > pass_ns[0] && pass_ns[1] < pass_ns[2]) median_ns = pass_ns[1];
+            if (pass_ns[2] > pass_ns[0] && pass_ns[2] < pass_ns[1]) median_ns = pass_ns[2];
+            
+            double total_ms = median_ns * NUM_RECORDS / 1000000.0;
+            
+            smc_state_indexed_stats_t stats;
+            smc_state_indexed_get_stats(matrix_ctx, &stats);
+            
+            printf("%10zu | %11d%% | %9.1f | %8.3f | %11zu | %6llu | %7llu | %9llu | %6llu | %14llu\n",
+                   state_size,
+                   change_rate,
+                   median_ns,
+                   total_ms,
+                   (size_t)(NUM_RECORDS * change_rate / 100),
+                   (unsigned long long)stats.checks,
+                   (unsigned long long)stats.changed,
+                   (unsigned long long)stats.unchanged,
+                   (unsigned long long)stats.stores,
+                   (unsigned long long)stats.bytes_compared);
+        }
+        
+        free(matrix_states);
+        smc_context_destroy(matrix_ctx);
+    }
+    
     smc_shutdown();
     
     printf("\nSMC indexed state benchmark complete.\n");
+    (void)sum;
     return 0;
 }

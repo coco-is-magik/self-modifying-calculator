@@ -994,6 +994,446 @@ static int test_batch_no_accidental_reset(void) {
     return 0;
 }
 
+/* Helper: verify a 3-frame workload for a given state size and stride.
+ * Frame 1: all changed. Frame 2: all unchanged. Frame 3: one changed. */
+static int run_kernel_equivalence_workload(size_t state_size, size_t stride) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    const size_t COUNT = 100;
+    smc_state_indexed_config_t config = {
+        .count = COUNT,
+        .state_size = state_size,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    uint8_t *states = (uint8_t *)malloc(COUNT * stride);
+    if (!states) {
+        smc_context_destroy(ctx);
+        return 1;
+    }
+    
+    for (size_t i = 0; i < COUNT; i++) {
+        uint8_t *slot = states + i * stride;
+        memset(slot, 0, stride);
+        if (state_size >= 1) slot[0] = (uint8_t)(i & 0xFF);
+        if (state_size >= 2) slot[1] = (uint8_t)((i >> 8) & 0xFF);
+        if (state_size >= 4) {
+            uint32_t val = (uint32_t)i;
+            memcpy(slot, &val, 4);
+        }
+        if (state_size >= 8) {
+            uint64_t val = (uint64_t)i;
+            memcpy(slot, &val, 8);
+        }
+        if (state_size == 16) {
+            uint64_t lo = (uint64_t)i;
+            uint64_t hi = (uint64_t)(i + 1);
+            memcpy(slot, &lo, 8);
+            memcpy(slot + 8, &hi, 8);
+        }
+    }
+    
+    uint32_t dirty_indices[COUNT];
+    size_t dirty_count = 0;
+    smc_state_indexed_stats_t stats;
+    
+    /* Frame 1: all changed */
+    rc = smc_state_diff_indexed_batch(ctx, states, COUNT, stride, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 1 batch");
+    ASSERT_EQ(dirty_count, COUNT, "frame 1 all changed");
+    for (size_t i = 0; i < COUNT; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "frame 1 dirty index order");
+    }
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 1 stats");
+    ASSERT_EQ(stats.checks, COUNT, "frame 1 checks");
+    ASSERT_EQ(stats.changed, COUNT, "frame 1 changed");
+    ASSERT_EQ(stats.unchanged, 0u, "frame 1 unchanged");
+    ASSERT_EQ(stats.stores, COUNT, "frame 1 stores");
+    ASSERT_EQ(stats.bytes_compared, COUNT * state_size, "frame 1 bytes_compared");
+    
+    /* Frame 2: all unchanged */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, COUNT, stride, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 2 batch");
+    ASSERT_EQ(dirty_count, 0u, "frame 2 no dirty");
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 2 stats");
+    ASSERT_EQ(stats.checks, COUNT * 2, "frame 2 checks");
+    ASSERT_EQ(stats.changed, COUNT, "frame 2 changed");
+    ASSERT_EQ(stats.unchanged, COUNT, "frame 2 unchanged");
+    ASSERT_EQ(stats.stores, COUNT, "frame 2 stores");
+    
+    /* Frame 3: one changed */
+    size_t modified_index = 50;
+    uint8_t *modified_slot = states + modified_index * stride;
+    if (state_size >= 1) modified_slot[0] = 0xFF;
+    if (state_size >= 2) modified_slot[1] = 0xFF;
+    if (state_size >= 4) {
+        uint32_t val = 0xFFFFFFFFu;
+        memcpy(modified_slot, &val, 4);
+    }
+    if (state_size >= 8) {
+        uint64_t val = 0xFFFFFFFFFFFFFFFFull;
+        memcpy(modified_slot, &val, 8);
+    }
+    if (state_size == 16) {
+        uint64_t lo = 0xFFFFFFFFFFFFFFFFull;
+        uint64_t hi = 0xFFFFFFFFFFFFFFFFull;
+        memcpy(modified_slot, &lo, 8);
+        memcpy(modified_slot + 8, &hi, 8);
+    }
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, COUNT, stride, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 3 batch");
+    ASSERT_EQ(dirty_count, 1u, "frame 3 one dirty");
+    ASSERT_EQ(dirty_indices[0], (uint32_t)modified_index, "frame 3 dirty index");
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 3 stats");
+    ASSERT_EQ(stats.checks, COUNT * 3, "frame 3 checks");
+    ASSERT_EQ(stats.changed, COUNT + 1, "frame 3 changed");
+    ASSERT_EQ(stats.unchanged, (COUNT * 2) - 1, "frame 3 unchanged");
+    ASSERT_EQ(stats.stores, COUNT + 1, "frame 3 stores");
+    
+    free(states);
+    smc_context_destroy(ctx);
+    return 0;
+}
+
+static int test_kernel_equivalence_1_byte(void) {
+    if (run_kernel_equivalence_workload(1, 1) != 0) return 1;
+    printf("  test_kernel_equivalence_1_byte: PASS\n");
+    return 0;
+}
+
+static int test_kernel_equivalence_2_bytes(void) {
+    if (run_kernel_equivalence_workload(2, 2) != 0) return 1;
+    printf("  test_kernel_equivalence_2_bytes: PASS\n");
+    return 0;
+}
+
+static int test_kernel_equivalence_4_bytes(void) {
+    if (run_kernel_equivalence_workload(4, 4) != 0) return 1;
+    printf("  test_kernel_equivalence_4_bytes: PASS\n");
+    return 0;
+}
+
+static int test_kernel_equivalence_8_bytes(void) {
+    if (run_kernel_equivalence_workload(8, 8) != 0) return 1;
+    printf("  test_kernel_equivalence_8_bytes: PASS\n");
+    return 0;
+}
+
+static int test_kernel_equivalence_16_bytes(void) {
+    if (run_kernel_equivalence_workload(16, 16) != 0) return 1;
+    printf("  test_kernel_equivalence_16_bytes: PASS\n");
+    return 0;
+}
+
+/* Test unaligned input buffers for fixed-size kernels.
+ * Data is written with memcpy to avoid relying on typed pointer alignment. */
+static int run_unaligned_test(size_t state_size) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    const size_t COUNT = 100;
+    const size_t STRIDE = state_size * 2; /* stride > state_size, offset by 1 */
+    smc_state_indexed_config_t config = {
+        .count = COUNT,
+        .state_size = state_size,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    /* Allocate extra byte at start so buffer+1 is valid for all records */
+    uint8_t *buffer = (uint8_t *)malloc(1 + COUNT * STRIDE);
+    if (!buffer) {
+        smc_context_destroy(ctx);
+        return 1;
+    }
+    
+    for (size_t i = 0; i < COUNT; i++) {
+        uint8_t *state_ptr = buffer + 1 + i * STRIDE;
+        memset(state_ptr, 0, STRIDE);
+        if (state_size == 2) {
+            uint16_t val = (uint16_t)i;
+            memcpy(state_ptr, &val, 2);
+        } else if (state_size == 4) {
+            uint32_t val = (uint32_t)i;
+            memcpy(state_ptr, &val, 4);
+        } else if (state_size == 8) {
+            uint64_t val = (uint64_t)i;
+            memcpy(state_ptr, &val, 8);
+        } else if (state_size == 16) {
+            uint64_t lo = (uint64_t)i;
+            uint64_t hi = (uint64_t)(i + 1);
+            memcpy(state_ptr, &lo, 8);
+            memcpy(state_ptr + 8, &hi, 8);
+        }
+    }
+    
+    uint32_t dirty_indices[COUNT];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, buffer + 1, COUNT, STRIDE, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "unaligned batch");
+    ASSERT_EQ(dirty_count, COUNT, "unaligned all changed");
+    for (size_t i = 0; i < COUNT; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "unaligned dirty index order");
+    }
+    
+    /* Second identical batch should be unchanged */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, buffer + 1, COUNT, STRIDE, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "unaligned second batch");
+    ASSERT_EQ(dirty_count, 0u, "unaligned second batch unchanged");
+    
+    free(buffer);
+    smc_context_destroy(ctx);
+    return 0;
+}
+
+static int test_unaligned_2_bytes(void) {
+    if (run_unaligned_test(2) != 0) return 1;
+    printf("  test_unaligned_2_bytes: PASS\n");
+    return 0;
+}
+
+static int test_unaligned_4_bytes(void) {
+    if (run_unaligned_test(4) != 0) return 1;
+    printf("  test_unaligned_4_bytes: PASS\n");
+    return 0;
+}
+
+static int test_unaligned_8_bytes(void) {
+    if (run_unaligned_test(8) != 0) return 1;
+    printf("  test_unaligned_8_bytes: PASS\n");
+    return 0;
+}
+
+static int test_unaligned_16_bytes(void) {
+    if (run_unaligned_test(16) != 0) return 1;
+    printf("  test_unaligned_16_bytes: PASS\n");
+    return 0;
+}
+
+/* Test stride > state_size for every fixed-size kernel. */
+static int run_stride_larger_test(size_t state_size) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    const size_t COUNT = 100;
+    const size_t STRIDE = state_size + 4; /* extra padding */
+    smc_state_indexed_config_t config = {
+        .count = COUNT,
+        .state_size = state_size,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint8_t *buffer = (uint8_t *)malloc(COUNT * STRIDE);
+    if (!buffer) {
+        smc_context_destroy(ctx);
+        return 1;
+    }
+    
+    for (size_t i = 0; i < COUNT; i++) {
+        uint8_t *state_ptr = buffer + i * STRIDE;
+        memset(state_ptr, 0xAA, STRIDE); /* fill padding with deterministic bytes */
+        if (state_size == 1) {
+            state_ptr[0] = (uint8_t)i;
+        } else if (state_size == 2) {
+            uint16_t val = (uint16_t)i;
+            memcpy(state_ptr, &val, 2);
+        } else if (state_size == 4) {
+            uint32_t val = (uint32_t)i;
+            memcpy(state_ptr, &val, 4);
+        } else if (state_size == 8) {
+            uint64_t val = (uint64_t)i;
+            memcpy(state_ptr, &val, 8);
+        } else if (state_size == 16) {
+            uint64_t lo = (uint64_t)i;
+            uint64_t hi = (uint64_t)(i + 1);
+            memcpy(state_ptr, &lo, 8);
+            memcpy(state_ptr + 8, &hi, 8);
+        }
+    }
+    
+    uint32_t dirty_indices[COUNT];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, buffer, COUNT, STRIDE, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "stride larger batch");
+    ASSERT_EQ(dirty_count, COUNT, "stride larger all changed");
+    
+    /* Modify padding only; state bytes unchanged -> should report unchanged */
+    for (size_t i = 0; i < COUNT; i++) {
+        uint8_t *state_ptr = buffer + i * STRIDE;
+        memset(state_ptr + state_size, 0xBB, STRIDE - state_size);
+    }
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, buffer, COUNT, STRIDE, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "stride larger second batch");
+    ASSERT_EQ(dirty_count, 0u, "stride larger padding change ignored");
+    
+    free(buffer);
+    smc_context_destroy(ctx);
+    return 0;
+}
+
+static int test_stride_larger_kernel_1_byte(void) {
+    if (run_stride_larger_test(1) != 0) return 1;
+    printf("  test_stride_larger_kernel_1_byte: PASS\n");
+    return 0;
+}
+
+static int test_stride_larger_kernel_2_bytes(void) {
+    if (run_stride_larger_test(2) != 0) return 1;
+    printf("  test_stride_larger_kernel_2_bytes: PASS\n");
+    return 0;
+}
+
+static int test_stride_larger_kernel_4_bytes(void) {
+    if (run_stride_larger_test(4) != 0) return 1;
+    printf("  test_stride_larger_kernel_4_bytes: PASS\n");
+    return 0;
+}
+
+static int test_stride_larger_kernel_8_bytes(void) {
+    if (run_stride_larger_test(8) != 0) return 1;
+    printf("  test_stride_larger_kernel_8_bytes: PASS\n");
+    return 0;
+}
+
+static int test_stride_larger_kernel_16_bytes(void) {
+    if (run_stride_larger_test(16) != 0) return 1;
+    printf("  test_stride_larger_kernel_16_bytes: PASS\n");
+    return 0;
+}
+
+/* Test generic fallback for non-power-of-two state sizes. */
+static int run_generic_fallback_test(size_t state_size) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    const size_t COUNT = 100;
+    smc_state_indexed_config_t config = {
+        .count = COUNT,
+        .state_size = state_size,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint8_t *states = (uint8_t *)malloc(COUNT * state_size);
+    if (!states) {
+        smc_context_destroy(ctx);
+        return 1;
+    }
+    for (size_t i = 0; i < COUNT; i++) {
+        memset(states + i * state_size, (uint8_t)i, state_size);
+    }
+    
+    uint32_t dirty_indices[COUNT];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, states, COUNT, state_size, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "generic fallback batch");
+    ASSERT_EQ(dirty_count, COUNT, "generic fallback all changed");
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, COUNT, state_size, dirty_indices, COUNT, &dirty_count);
+    ASSERT_OK(rc, "generic fallback second batch");
+    ASSERT_EQ(dirty_count, 0u, "generic fallback unchanged");
+    
+    free(states);
+    smc_context_destroy(ctx);
+    return 0;
+}
+
+static int test_generic_fallback_7_bytes(void) {
+    if (run_generic_fallback_test(7) != 0) return 1;
+    printf("  test_generic_fallback_7_bytes: PASS\n");
+    return 0;
+}
+
+static int test_generic_fallback_12_bytes(void) {
+    if (run_generic_fallback_test(12) != 0) return 1;
+    printf("  test_generic_fallback_12_bytes: PASS\n");
+    return 0;
+}
+
+static int test_generic_fallback_24_bytes(void) {
+    if (run_generic_fallback_test(24) != 0) return 1;
+    printf("  test_generic_fallback_24_bytes: PASS\n");
+    return 0;
+}
+
+static int test_generic_fallback_32_bytes(void) {
+    if (run_generic_fallback_test(32) != 0) return 1;
+    printf("  test_generic_fallback_32_bytes: PASS\n");
+    return 0;
+}
+
+/* Test capacity overflow for a fixed-size kernel (8 bytes). */
+static int test_fixed_kernel_capacity_overflow(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 8,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    uint8_t states[100 * 8];
+    for (size_t i = 0; i < 100; i++) {
+        uint64_t val = (uint64_t)i;
+        memcpy(states + i * 8, &val, 8);
+    }
+    
+    uint32_t dirty_indices[5] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 8, dirty_indices, 5, &dirty_count);
+    ASSERT_OK(rc, "fixed kernel capacity overflow batch");
+    ASSERT_EQ(dirty_count, 100u, "fixed kernel full dirty count");
+    for (size_t i = 0; i < 5; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "fixed kernel partial indices");
+    }
+    
+    smc_state_indexed_stats_t stats;
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "fixed kernel stats");
+    ASSERT_EQ(stats.checks, 100u, "fixed kernel checks");
+    ASSERT_EQ(stats.changed, 100u, "fixed kernel changed");
+    ASSERT_EQ(stats.stores, 100u, "fixed kernel stores");
+    
+    /* Second identical batch should be unchanged because state was stored */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 8, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "fixed kernel second batch");
+    ASSERT_EQ(dirty_count, 0u, "fixed kernel second batch unchanged");
+    
+    smc_context_destroy(ctx);
+    printf("  test_fixed_kernel_capacity_overflow: PASS\n");
+    return 0;
+}
+
 /* Test feature flag */
 static int test_feature_flag(void) {
     uint32_t features = smc_features();
@@ -1041,6 +1481,30 @@ int main(void) {
     if (test_batch_multiple_modified_ordered() != 0) return 1;
     if (test_renderer_shaped_workload() != 0) return 1;
     if (test_batch_no_accidental_reset() != 0) return 1;
+    
+    if (test_kernel_equivalence_1_byte() != 0) return 1;
+    if (test_kernel_equivalence_2_bytes() != 0) return 1;
+    if (test_kernel_equivalence_4_bytes() != 0) return 1;
+    if (test_kernel_equivalence_8_bytes() != 0) return 1;
+    if (test_kernel_equivalence_16_bytes() != 0) return 1;
+    
+    if (test_unaligned_2_bytes() != 0) return 1;
+    if (test_unaligned_4_bytes() != 0) return 1;
+    if (test_unaligned_8_bytes() != 0) return 1;
+    if (test_unaligned_16_bytes() != 0) return 1;
+    
+    if (test_stride_larger_kernel_1_byte() != 0) return 1;
+    if (test_stride_larger_kernel_2_bytes() != 0) return 1;
+    if (test_stride_larger_kernel_4_bytes() != 0) return 1;
+    if (test_stride_larger_kernel_8_bytes() != 0) return 1;
+    if (test_stride_larger_kernel_16_bytes() != 0) return 1;
+    
+    if (test_generic_fallback_7_bytes() != 0) return 1;
+    if (test_generic_fallback_12_bytes() != 0) return 1;
+    if (test_generic_fallback_24_bytes() != 0) return 1;
+    if (test_generic_fallback_32_bytes() != 0) return 1;
+    
+    if (test_fixed_kernel_capacity_overflow() != 0) return 1;
     
     smc_shutdown();
     printf("All indexed state tests passed.\n");

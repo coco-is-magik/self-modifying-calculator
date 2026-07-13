@@ -367,13 +367,273 @@ int smc_indexed_state_table_clear(smc_indexed_state_table_t *table) {
     return SMC_OK;
 }
 
+/* Generic byte-by-byte batch kernel.  Used for arbitrary state sizes and as the
+ * reference implementation for the fixed-size kernels. */
+static void smc_batch_kernel_generic(smc_indexed_state_table_t *table,
+                                      const void *states,
+                                      size_t count,
+                                      size_t stride,
+                                      uint32_t *dirty_indices,
+                                      size_t dirty_capacity,
+                                      size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    size_t state_size = table->state_size;
+    const unsigned char *src_base = (const unsigned char *)states;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < count; i++) {
+        const unsigned char *state_ptr = src_base + i * stride;
+        unsigned char *slot = slots + i * state_size;
+        int is_changed = 1;
+        
+        if (valid[i]) {
+            if (state_size == 0 || memcmp(slot, state_ptr, state_size) == 0) {
+                is_changed = 0;
+            } else {
+                if (state_size > 0) {
+                    memcpy(slot, state_ptr, state_size);
+                }
+            }
+        } else {
+            if (state_size > 0) {
+                memcpy(slot, state_ptr, state_size);
+            }
+            valid[i] = 1;
+        }
+        
+        if (is_changed) {
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += count;
+        table->stats->bytes_compared += count * state_size;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+/* Fixed-size batch kernels.  These are candidates for optimization; any that do
+ * not show a measurable improvement over the generic kernel should be removed.
+ * All loads/stores use memcpy to remain safe for unaligned input. */
+
+static void smc_batch_kernel_1(smc_indexed_state_table_t *table,
+                                const void *states,
+                                size_t count,
+                                size_t stride,
+                                uint32_t *dirty_indices,
+                                size_t dirty_capacity,
+                                size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    const unsigned char *src_base = (const unsigned char *)states;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < count; i++) {
+        unsigned char new_val = src_base[i * stride];
+        unsigned char *slot = slots + i;
+        int is_changed = 1;
+        
+        if (valid[i]) {
+            if (*slot == new_val) {
+                is_changed = 0;
+            } else {
+                *slot = new_val;
+            }
+        } else {
+            *slot = new_val;
+            valid[i] = 1;
+        }
+        
+        if (is_changed) {
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += count;
+        table->stats->bytes_compared += count;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+static void smc_batch_kernel_2(smc_indexed_state_table_t *table,
+                                const void *states,
+                                size_t count,
+                                size_t stride,
+                                uint32_t *dirty_indices,
+                                size_t dirty_capacity,
+                                size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    const unsigned char *src_base = (const unsigned char *)states;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < count; i++) {
+        const unsigned char *src = src_base + i * stride;
+        unsigned char *slot = slots + i * 2;
+        uint16_t old_val, new_val;
+        int is_changed = 1;
+        
+        memcpy(&new_val, src, 2);
+        if (valid[i]) {
+            memcpy(&old_val, slot, 2);
+            if (old_val == new_val) {
+                is_changed = 0;
+            } else {
+                memcpy(slot, &new_val, 2);
+            }
+        } else {
+            memcpy(slot, &new_val, 2);
+            valid[i] = 1;
+        }
+        
+        if (is_changed) {
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += count;
+        table->stats->bytes_compared += count * 2;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+static void smc_batch_kernel_4(smc_indexed_state_table_t *table,
+                                const void *states,
+                                size_t count,
+                                size_t stride,
+                                uint32_t *dirty_indices,
+                                size_t dirty_capacity,
+                                size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    const unsigned char *src_base = (const unsigned char *)states;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < count; i++) {
+        const unsigned char *src = src_base + i * stride;
+        unsigned char *slot = slots + i * 4;
+        uint32_t old_val, new_val;
+        int is_changed = 1;
+        
+        memcpy(&new_val, src, 4);
+        if (valid[i]) {
+            memcpy(&old_val, slot, 4);
+            if (old_val == new_val) {
+                is_changed = 0;
+            } else {
+                memcpy(slot, &new_val, 4);
+            }
+        } else {
+            memcpy(slot, &new_val, 4);
+            valid[i] = 1;
+        }
+        
+        if (is_changed) {
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += count;
+        table->stats->bytes_compared += count * 4;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+static void smc_batch_kernel_8(smc_indexed_state_table_t *table,
+                                const void *states,
+                                size_t count,
+                                size_t stride,
+                                uint32_t *dirty_indices,
+                                size_t dirty_capacity,
+                                size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    const unsigned char *src_base = (const unsigned char *)states;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < count; i++) {
+        const unsigned char *src = src_base + i * stride;
+        unsigned char *slot = slots + i * 8;
+        uint64_t old_val, new_val;
+        int is_changed = 1;
+        
+        memcpy(&new_val, src, 8);
+        if (valid[i]) {
+            memcpy(&old_val, slot, 8);
+            if (old_val == new_val) {
+                is_changed = 0;
+            } else {
+                memcpy(slot, &new_val, 8);
+            }
+        } else {
+            memcpy(slot, &new_val, 8);
+            valid[i] = 1;
+        }
+        
+        if (is_changed) {
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += count;
+        table->stats->bytes_compared += count * 8;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
 int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
-                                        const void *states,
-                                        size_t count,
-                                        size_t stride,
-                                        uint32_t *dirty_indices,
-                                        size_t dirty_capacity,
-                                        size_t *out_dirty_count) {
+                                         const void *states,
+                                         size_t count,
+                                         size_t stride,
+                                         uint32_t *dirty_indices,
+                                         size_t dirty_capacity,
+                                         size_t *out_dirty_count) {
     if (!table || !table->configured) {
         return SMC_ERR_INIT;
     }
@@ -396,51 +656,37 @@ int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
         return SMC_ERR_INVALID;
     }
     
-    size_t changed_count = 0;
-    size_t write_pos = 0;
-    
-    for (size_t i = 0; i < count; i++) {
-        /* Calculate pointer to state record i */
-        const unsigned char *state_ptr = (const unsigned char *)states + i * stride;
-        
-        /* Check this index */
-        unsigned char *slot = table->states + i * table->state_size;
-        int is_changed = 1;
-        
-        if (table->valid[i]) {
-            /* Already seen - compare */
-            if (table->state_size == 0 || memcmp(slot, state_ptr, table->state_size) == 0) {
-                is_changed = 0;
-            } else {
-                /* Update state */
-                if (table->state_size > 0) {
-                    memcpy(slot, state_ptr, table->state_size);
-                }
-            }
-        } else {
-            /* First observation - store state */
-            if (table->state_size > 0) {
-                memcpy(slot, state_ptr, table->state_size);
-            }
-            table->valid[i] = 1;
-        }
-        
-        if (is_changed) {
-            changed_count++;
-            if (write_pos < dirty_capacity && dirty_indices != NULL) {
-                dirty_indices[write_pos++] = (uint32_t)i;
-            }
-        }
+#ifdef SMC_DISABLE_FIXED_BATCH_KERNELS
+    (void)smc_batch_kernel_1;
+    (void)smc_batch_kernel_2;
+    (void)smc_batch_kernel_4;
+    (void)smc_batch_kernel_8;
+    smc_batch_kernel_generic(table, states, count, stride,
+                             dirty_indices, dirty_capacity, out_dirty_count);
+#else
+    switch (table->state_size) {
+        case 1:
+            smc_batch_kernel_1(table, states, count, stride,
+                               dirty_indices, dirty_capacity, out_dirty_count);
+            break;
+        case 2:
+            smc_batch_kernel_2(table, states, count, stride,
+                               dirty_indices, dirty_capacity, out_dirty_count);
+            break;
+        case 4:
+            smc_batch_kernel_4(table, states, count, stride,
+                               dirty_indices, dirty_capacity, out_dirty_count);
+            break;
+        case 8:
+            smc_batch_kernel_8(table, states, count, stride,
+                               dirty_indices, dirty_capacity, out_dirty_count);
+            break;
+        default:
+            smc_batch_kernel_generic(table, states, count, stride,
+                                     dirty_indices, dirty_capacity, out_dirty_count);
+            break;
     }
+#endif
     
-    if (table->stats) {
-        table->stats->checks += count;
-        table->stats->bytes_compared += count * table->state_size;
-        table->stats->changed += changed_count;
-        table->stats->unchanged += count - changed_count;
-        table->stats->stores += changed_count;
-    }
-    
-    *out_dirty_count = changed_count;
     return SMC_OK;
 }
