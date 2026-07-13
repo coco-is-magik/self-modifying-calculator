@@ -383,11 +383,17 @@ int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
     if (stride == 0) {
         return SMC_ERR_INVALID;
     }
+    if (stride < table->state_size) {
+        return SMC_ERR_SIZE;
+    }
     if (dirty_indices == NULL && dirty_capacity > 0) {
         return SMC_ERR_INVALID;
     }
     if (count > table->count) {
         return SMC_ERR_SIZE;
+    }
+    if (count > 0 && table->state_size > 0 && states == NULL) {
+        return SMC_ERR_INVALID;
     }
     
     size_t changed_count = 0;
@@ -431,6 +437,7 @@ int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
         table->stats->checks += count;
         table->stats->bytes_compared += count * table->state_size;
         table->stats->changed += changed_count;
+        table->stats->unchanged += count - changed_count;
         table->stats->stores += changed_count;
     }
     

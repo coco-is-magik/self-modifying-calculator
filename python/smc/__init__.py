@@ -80,6 +80,7 @@ __all__ = [
 
 SMC_FEATURE_ARTIFACT_CACHE = 0x01
 SMC_FEATURE_STATE_TRACKING = 0x02
+SMC_FEATURE_INDEXED_STATE_TRACKING = 0x04
 SMC_OK = 0
 SMC_ERR_NOT_FOUND = 1
 
@@ -728,6 +729,15 @@ def state_indexed_reset_stats(ctx) -> None:
 
 
 def state_diff_indexed_batch(ctx, states: bytes, count: int, stride: int, dirty_capacity: int) -> tuple:
+    """Process a batch of indexed states and return dirty indices.
+
+    Returns ``(dirty_indices_bytes, dirty_count)``. ``dirty_count`` is always
+    the full number of changed records, even if ``dirty_capacity`` is smaller.
+    State persists across calls unless cleared via ``state_indexed_clear()``.
+
+    ``states`` may be ``None`` only when the configured state size is 0 or
+    ``count`` is 0. ``stride`` must be at least the configured state size.
+    """
     lib = _LibSMC()
     dirty_indices = (c_uint32 * dirty_capacity)() if dirty_capacity > 0 else None
     out_dirty_count = c_size_t()

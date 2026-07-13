@@ -577,6 +577,423 @@ static int test_batch_stride_larger(void) {
     return 0;
 }
 
+/* Test batch: count == 0 with NULL states is valid */
+static int test_batch_count_zero(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    size_t dirty_count = 12345; /* sentinel value */
+    rc = smc_state_diff_indexed_batch(ctx, NULL, 0, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "batch with count=0");
+    ASSERT_EQ(dirty_count, 0u, "dirty_count is 0 for count=0");
+    
+    smc_state_indexed_stats_t stats;
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_state_indexed_get_stats");
+    ASSERT_EQ(stats.checks, 0u, "no checks for count=0");
+    ASSERT_EQ(stats.changed, 0u, "no changes for count=0");
+    ASSERT_EQ(stats.unchanged, 0u, "no unchanged for count=0");
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_count_zero: PASS\n");
+    return 0;
+}
+
+/* Test batch: stride == 0 returns SMC_ERR_INVALID */
+static int test_batch_zero_stride(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint32_t states[100] = {0};
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 0, dirty_indices, 100, &dirty_count);
+    if (rc != SMC_ERR_INVALID) {
+        fprintf(stderr, "FAIL: stride=0 should return SMC_ERR_INVALID, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_zero_stride: PASS\n");
+    return 0;
+}
+
+/* Test batch: states == NULL with state_size > 0 returns SMC_ERR_INVALID */
+static int test_batch_states_null_with_size(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, NULL, 100, 4, dirty_indices, 100, &dirty_count);
+    if (rc != SMC_ERR_INVALID) {
+        fprintf(stderr, "FAIL: NULL states with state_size>0 should return SMC_ERR_INVALID, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_states_null_with_size: PASS\n");
+    return 0;
+}
+
+/* Test batch: states == NULL with state_size == 0 is valid */
+static int test_batch_states_null_zero_size(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 0,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, NULL, 100, 1, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "batch with NULL states and state_size=0");
+    ASSERT_EQ(dirty_count, 100u, "all zero-size records are changed on first observation");
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_states_null_zero_size: PASS\n");
+    return 0;
+}
+
+/* Test batch: stride < state_size returns SMC_ERR_SIZE */
+static int test_batch_stride_too_small(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 8,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint8_t states[100 * 4]; /* stride 4 < state_size 8 */
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, dirty_indices, 100, &dirty_count);
+    if (rc != SMC_ERR_SIZE) {
+        fprintf(stderr, "FAIL: stride < state_size should return SMC_ERR_SIZE, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_stride_too_small: PASS\n");
+    return 0;
+}
+
+/* Test batch: dirty_capacity smaller than dirty count */
+static int test_batch_dirty_capacity_overflow(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    uint32_t states[100];
+    for (int i = 0; i < 100; i++) {
+        states[i] = (uint32_t)i;
+    }
+    
+    uint32_t dirty_indices[5] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
+    size_t dirty_count = 0;
+    
+    /* First batch: all 100 changed, but only 5 indices written */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, dirty_indices, 5, &dirty_count);
+    ASSERT_OK(rc, "batch with capacity overflow");
+    ASSERT_EQ(dirty_count, 100u, "full dirty count reported");
+    
+    for (size_t i = 0; i < 5; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "partial indices written in order");
+    }
+    
+    smc_state_indexed_stats_t stats;
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_state_indexed_get_stats");
+    ASSERT_EQ(stats.checks, 100u, "checks count after first batch");
+    ASSERT_EQ(stats.changed, 100u, "changed count after first batch");
+    ASSERT_EQ(stats.unchanged, 0u, "unchanged count after first batch");
+    ASSERT_EQ(stats.stores, 100u, "stores count after first batch");
+    
+    /* Second identical batch: state was stored for all 100, so all unchanged */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second batch with NULL dirty_indices");
+    ASSERT_EQ(dirty_count, 0u, "no dirty on second batch");
+    
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_state_indexed_get_stats");
+    ASSERT_EQ(stats.checks, 200u, "checks count after second batch");
+    ASSERT_EQ(stats.changed, 100u, "changed count unchanged after second batch");
+    ASSERT_EQ(stats.unchanged, 100u, "unchanged count after second batch");
+    ASSERT_EQ(stats.stores, 100u, "stores count unchanged after second batch");
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_dirty_capacity_overflow: PASS\n");
+    return 0;
+}
+
+/* Test batch: stats accumulate correctly across multiple identical calls */
+static int test_batch_stats_accumulation(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    uint32_t states[100];
+    for (int i = 0; i < 100; i++) {
+        states[i] = (uint32_t)i;
+    }
+    
+    size_t dirty_count = 0;
+    
+    /* First batch: all changed */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first batch");
+    ASSERT_EQ(dirty_count, 100u, "first batch all changed");
+    
+    /* Second batch: all unchanged */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second batch");
+    ASSERT_EQ(dirty_count, 0u, "second batch all unchanged");
+    
+    /* Third batch: all unchanged */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "third batch");
+    ASSERT_EQ(dirty_count, 0u, "third batch all unchanged");
+    
+    smc_state_indexed_stats_t stats;
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "smc_state_indexed_get_stats");
+    ASSERT_EQ(stats.checks, 300u, "cumulative checks");
+    ASSERT_EQ(stats.changed, 100u, "only first batch changed");
+    ASSERT_EQ(stats.unchanged, 200u, "second and third batches unchanged");
+    ASSERT_EQ(stats.stores, 100u, "only first batch stores");
+    ASSERT_EQ(stats.bytes_compared, 1200u, "bytes compared total");
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_stats_accumulation: PASS\n");
+    return 0;
+}
+
+/* Test batch: multiple modified records return exact dirty indices in order */
+static int test_batch_multiple_modified_ordered(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint32_t states[100];
+    for (int i = 0; i < 100; i++) {
+        states[i] = (uint32_t)i;
+    }
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    
+    /* First batch: populate */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first batch");
+    ASSERT_EQ(dirty_count, 100u, "all dirty on first batch");
+    
+    /* Modify records 10, 20, 30 */
+    states[10] = 1000;
+    states[20] = 2000;
+    states[30] = 3000;
+    
+    /* Second batch: exactly three dirty indices in order */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second batch");
+    ASSERT_EQ(dirty_count, 3u, "three dirty indices");
+    ASSERT_EQ(dirty_indices[0], 10u, "first dirty index");
+    ASSERT_EQ(dirty_indices[1], 20u, "second dirty index");
+    ASSERT_EQ(dirty_indices[2], 30u, "third dirty index");
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_multiple_modified_ordered: PASS\n");
+    return 0;
+}
+
+/* Test batch: renderer-shaped 3-frame workload */
+static int test_renderer_shaped_workload(void) {
+    const size_t RECORD_COUNT = 41600;
+    const size_t STATE_SIZE = 8;
+    const size_t MODIFIED_INDEX = 12345;
+    
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = RECORD_COUNT,
+        .state_size = STATE_SIZE,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "smc_state_indexed_reset_stats");
+    
+    uint8_t *states = (uint8_t *)malloc(RECORD_COUNT * STATE_SIZE);
+    if (!states) {
+        fprintf(stderr, "FAIL: out of memory for renderer states\n");
+        return 1;
+    }
+    
+    /* Initialize deterministic renderer-like state */
+    for (size_t i = 0; i < RECORD_COUNT; i++) {
+        uint64_t *cell = (uint64_t *)(states + i * STATE_SIZE);
+        *cell = (uint64_t)i;
+    }
+    
+    uint32_t *dirty_indices = (uint32_t *)malloc(RECORD_COUNT * sizeof(uint32_t));
+    if (!dirty_indices) {
+        free(states);
+        fprintf(stderr, "FAIL: out of memory for dirty_indices\n");
+        return 1;
+    }
+    
+    size_t dirty_count = 0;
+    smc_state_indexed_stats_t stats;
+    
+    /* Frame 1: all records observed for the first time */
+    rc = smc_state_diff_indexed_batch(ctx, states, RECORD_COUNT, STATE_SIZE, dirty_indices, RECORD_COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 1 batch");
+    ASSERT_EQ(dirty_count, RECORD_COUNT, "frame 1 all records changed");
+    
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 1 stats");
+    ASSERT_EQ(stats.checks, RECORD_COUNT, "frame 1 checks");
+    ASSERT_EQ(stats.changed, RECORD_COUNT, "frame 1 changed");
+    ASSERT_EQ(stats.unchanged, 0u, "frame 1 unchanged");
+    
+    /* Frame 2: identical records, all unchanged */
+    rc = smc_state_diff_indexed_batch(ctx, states, RECORD_COUNT, STATE_SIZE, dirty_indices, RECORD_COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 2 batch");
+    ASSERT_EQ(dirty_count, 0u, "frame 2 no records changed");
+    
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 2 stats");
+    ASSERT_EQ(stats.checks, RECORD_COUNT * 2, "frame 2 checks");
+    ASSERT_EQ(stats.changed, RECORD_COUNT, "frame 2 changed unchanged");
+    ASSERT_EQ(stats.unchanged, RECORD_COUNT, "frame 2 unchanged");
+    
+    /* Frame 3: exactly one record changed */
+    uint64_t *modified_cell = (uint64_t *)(states + MODIFIED_INDEX * STATE_SIZE);
+    *modified_cell = 0xDEADBEEF;
+    
+    rc = smc_state_diff_indexed_batch(ctx, states, RECORD_COUNT, STATE_SIZE, dirty_indices, RECORD_COUNT, &dirty_count);
+    ASSERT_OK(rc, "frame 3 batch");
+    ASSERT_EQ(dirty_count, 1u, "frame 3 one record changed");
+    ASSERT_EQ(dirty_indices[0], (uint32_t)MODIFIED_INDEX, "frame 3 dirty index");
+    
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "frame 3 stats");
+    ASSERT_EQ(stats.checks, RECORD_COUNT * 3, "frame 3 checks");
+    ASSERT_EQ(stats.changed, RECORD_COUNT + 1, "frame 3 changed");
+    ASSERT_EQ(stats.unchanged, (RECORD_COUNT * 2) - 1, "frame 3 unchanged");
+    
+    free(states);
+    free(dirty_indices);
+    smc_context_destroy(ctx);
+    printf("  test_renderer_shaped_workload: PASS\n");
+    return 0;
+}
+
+/* Test batch: detect accidental state reset between frames */
+static int test_batch_no_accidental_reset(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 4,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "smc_state_indexed_configure");
+    
+    uint32_t states[100];
+    for (int i = 0; i < 100; i++) {
+        states[i] = (uint32_t)i;
+    }
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first batch");
+    ASSERT_EQ(dirty_count, 100u, "first batch all changed");
+    
+    /* Second identical batch should report zero changed. If the implementation
+     * accidentally cleared state between calls, it would report 100 changed. */
+    rc = smc_state_diff_indexed_batch(ctx, states, 100, 4, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second batch");
+    if (dirty_count != 0) {
+        fprintf(stderr, "FAIL: second batch reported %zu changed, expected 0 (accidental reset?)\n", dirty_count);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_batch_no_accidental_reset: PASS\n");
+    return 0;
+}
+
 /* Test feature flag */
 static int test_feature_flag(void) {
     uint32_t features = smc_features();
@@ -614,6 +1031,16 @@ int main(void) {
     if (test_batch_null_dirty_nonzero_capacity() != 0) return 1;
     if (test_batch_count_too_large() != 0) return 1;
     if (test_batch_stride_larger() != 0) return 1;
+    if (test_batch_count_zero() != 0) return 1;
+    if (test_batch_zero_stride() != 0) return 1;
+    if (test_batch_states_null_with_size() != 0) return 1;
+    if (test_batch_states_null_zero_size() != 0) return 1;
+    if (test_batch_stride_too_small() != 0) return 1;
+    if (test_batch_dirty_capacity_overflow() != 0) return 1;
+    if (test_batch_stats_accumulation() != 0) return 1;
+    if (test_batch_multiple_modified_ordered() != 0) return 1;
+    if (test_renderer_shaped_workload() != 0) return 1;
+    if (test_batch_no_accidental_reset() != 0) return 1;
     
     smc_shutdown();
     printf("All indexed state tests passed.\n");

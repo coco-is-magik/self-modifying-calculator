@@ -502,12 +502,31 @@ SMC_API int smc_state_indexed_reset_stats(smc_context_t *ctx);
 /* Process a batch of indexed states in one call.
  *
  * Compares each record against the corresponding indexed slot.  Record i maps to
- * index i.  If count > configured count, returns SMC_ERR_SIZE.
+ * index i.  States are assumed to be in dense order matching table configuration.
  *
- * If dirty_indices is NULL and dirty_capacity is 0, updates state and counts
- * changes but does not write indices.
+ * Parameters:
+ *   - states: pointer to first record; must be non-NULL if count > 0 and state_size > 0
+ *   - count: number of records to process; must not exceed configured table count
+ *   - stride: byte distance between consecutive records; must be >= state_size and > 0
+ *   - dirty_indices: output array for dirty indices; may be NULL only when dirty_capacity == 0
+ *   - dirty_capacity: size of dirty_indices array; if 0, no indices are written
+ *   - out_dirty_count: output pointer for total count of changed records; must be non-NULL
  *
- * If dirty_indices is NULL and dirty_capacity > 0, returns SMC_ERR_INVALID.
+ * Behavior:
+ *   - First observation of index i: marks changed=1 and stores the state.
+ *   - Identical state on re-observation: marks changed=0 and increments stats.unchanged.
+ *   - Modified state on re-observation: marks changed=1, updates stored state, and
+ *     increments stats.changed.
+ *   - If dirty_capacity < dirty_count: writes only up to dirty_capacity indices, reports
+ *     the full dirty count, and updates stored state and stats for the entire batch.
+ *   - count == 0 with NULL states is valid and returns SMC_OK with no stat updates.
+ *
+ * Returns:
+ *   - SMC_OK on success
+ *   - SMC_ERR_INIT if the indexed table is not configured
+ *   - SMC_ERR_INVALID if out_dirty_count is NULL
+ *   - SMC_ERR_SIZE if count > configured count or stride < state_size
+ *   - SMC_ERR_INVALID if dirty_indices is NULL and dirty_capacity > 0
  *
  * Preconditions: smc_init() has succeeded; ctx is valid; out_dirty_count is non-NULL.
  * Thread safety: externally synchronized in v1. */
