@@ -255,11 +255,15 @@ Output columns:
 records | total_bytes | layout_type | change_rate | packed_ns/op | stream_ns/op | direct_ns/op | packed_ms | stream_ms | direct_ms
 ```
 
-Example row:
+Example row (measured after optimization, approximate):
 
 ```
-41600   | 7           | mixed_1_3_3 | 1%          | 11.8         | 5.1          | 4.6          | 0.491     | 0.212     | 0.191
+41600   | 7           | mixed_1_3_3 | 1%          | 15.6         | 13.2         | 12.8         | 0.648     | 0.549     | 0.533
 ```
+
+Note: numbers vary by machine and compiler. The optimized stream diff is
+competitive with packed batch including packing cost for this workload, but
+not universally faster.
 
 Packing expression (with explicit casts):
 
@@ -273,6 +277,52 @@ packed_states[i] =
     ((uint64_t)bg_g[i]  << 40) |
     ((uint64_t)bg_b[i]  << 48);
 ```
+
+## Optimization Plan (Implemented)
+
+The first stream-diff implementation used a generic `memcmp`/`memcpy` loop with
+no short-circuiting. The optimized implementation adds:
+
+1. **Short-circuit comparison**: compare fields until the first difference, but
+   still copy all fields when a record is dirty. This preserves the
+   atomic-record snapshot invariant and prevents stale-field bugs.
+2. **Field-size specialization**: direct byte access for 1 and 3 bytes,
+   `memcpy`-into-temporaries for 2/4/8 bytes, and `memcmp` for other sizes.
+   This avoids function-call overhead for common small fields while remaining
+   C99 and unaligned-safe.
+3. **Layout-specific kernels**: specialized kernels for common ordered
+   signatures: `[1,1,1,1,1,1,1]`, `[1,3,3]`, and `[1,2,4]`. Dispatch is based on
+   exact stream order and field sizes.
+4. **Stack-allocated offsets**: a fixed `size_t offsets[8]` array covers common
+   small stream counts; a heap fallback is used for `stream_count > 8`.
+
+A baseline library compiled with `SMC_DISABLE_OPTIMIZED_STREAM_KERNELS` is
+provided for fair benchmarking.
+
+## Stream Layout Consistency
+
+Stream order defines the logical byte layout stored in each record slot:
+
+```
+[stream0 bytes][stream1 bytes][stream2 bytes]...
+```
+
+Callers must keep stream order and field sizes consistent across calls for a
+given configured table. SMC validates total field size and individual
+parameters, but it does not validate that stream order matches a previous call.
+Changing stream order across calls is caller misuse and may mark records dirty
+because the stored snapshot is reinterpreted under the new layout.
+
+## `bytes_compared` Semantics
+
+`bytes_compared` counts **logical bytes covered**:
+
+```
+bytes_compared += record_count * total_state_size
+```
+
+This is the total logical state size multiplied by record count, not the
+physical bytes actually compared. Short-circuiting does not change this metric.
 
 ## Documentation Plan
 

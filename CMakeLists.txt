@@ -86,6 +86,20 @@ if(SMC_BUILD_STATIC)
     )
     target_link_libraries(smc_static_generic PUBLIC m)
     target_compile_definitions(smc_static_generic PRIVATE SMC_DISABLE_FIXED_BATCH_KERNELS)
+
+    # Stream-diff baseline variant for benchmarking stream optimizations against
+    # the original generic memcmp/memcpy implementation.
+    add_library(smc_static_stream_baseline STATIC ${SMC_RUNTIME_SOURCES})
+    set_target_properties(smc_static_stream_baseline PROPERTIES
+        OUTPUT_NAME smc_stream_baseline
+        C_VISIBILITY_PRESET hidden
+    )
+    target_include_directories(smc_static_stream_baseline PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+    )
+    target_link_libraries(smc_static_stream_baseline PUBLIC m)
+    target_compile_definitions(smc_static_stream_baseline PRIVATE SMC_DISABLE_OPTIMIZED_STREAM_KERNELS)
 endif()
 
 if(SMC_BUILD_SHARED)
@@ -268,6 +282,14 @@ if(SMC_BUILD_TESTS)
     endif()
     add_test(NAME test_indexed_state COMMAND test_indexed_state)
     
+    # Stream-diff baseline variant: same tests, but links against the library
+    # compiled with SMC_DISABLE_OPTIMIZED_STREAM_KERNELS.
+    if(SMC_BUILD_STATIC)
+        add_executable(test_indexed_state_baseline tests/c/test_indexed_state.c)
+        target_link_libraries(test_indexed_state_baseline PRIVATE smc_static_stream_baseline)
+        add_test(NAME test_indexed_state_baseline COMMAND test_indexed_state_baseline)
+    endif()
+    
     add_test(NAME test_stub_runtime COMMAND test_stub_runtime)
 
     if(SMC_GENERATED_SOURCE)
@@ -350,6 +372,14 @@ if(SMC_BUILD_STATIC)
     else()
         target_link_libraries(benchmark_indexed_baseline PRIVATE smc_static_generic)
     endif()
+
+    # Stream-diff baseline benchmark: links against the library compiled with
+    # SMC_DISABLE_OPTIMIZED_STREAM_KERNELS.
+    add_executable(benchmark_stream_baseline tests/benchmarks/benchmark_indexed_state.c)
+    target_include_directories(benchmark_stream_baseline PRIVATE
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    )
+    target_link_libraries(benchmark_stream_baseline PRIVATE smc_static_stream_baseline)
 endif()
 
 if(SMC_BUILD_BENCHMARKS AND SMC_GENERATED_SOURCE)

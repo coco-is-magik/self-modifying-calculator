@@ -289,7 +289,8 @@ The indexed unchanged path is typically 6-10x faster than the generic path. The 
 ## 9. Indexed Stream Diff (v2.2)
 
 For callers whose source data is already split into separate arrays or fields,
-the stream diff API avoids the cost of building a temporary packed state array.
+the stream diff API lets callers skip building a temporary packed state array.
+Whether this is faster depends on the layout and the stream kernel implementation.
 
 ### 9.1 When to Use Stream Diff
 
@@ -362,6 +363,11 @@ smc_state_stream_t streams[3] = {
 - When a record is dirty, ALL fields are copied into the stored snapshot
 - Dirty indices are returned in ascending order
 - `dirty_capacity` overflow writes partial indices but reports the full count
+- Stream order defines the logical byte layout of each stored snapshot. Callers
+  must keep stream order and field sizes consistent across calls for a given
+  configured table. Changing stream order across calls is caller misuse and may
+  mark records dirty because the stored snapshot is reinterpreted under the new
+  layout.
 
 ## 10. Optimized Fixed-Size Batch Kernels (v2.2)
 

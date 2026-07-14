@@ -2426,6 +2426,162 @@ static int test_streams_empty_batch(void) {
     return 0;
 }
 
+/* Test stream diff: short-circuit stale-field prevention.
+ * Change a later field first, then verify the next frame is unchanged.
+ * This guards against implementations that copy only the changed field. */
+static int test_streams_short_circuit_stale_field(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 3];
+    uint8_t field_c[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 0x01;
+        memset(&field_b[i * 3], 0x02, 3);
+        memset(&field_c[i * 3], 0x03, 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {field_a, 1, 1},
+        {field_b, 3, 3},
+        {field_c, 3, 3},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 1");
+    ASSERT_EQ(dirty_count, 100u, "frame 1 all changed");
+    
+    /* Frame 2: change only field_c in record 42 (last field) */
+    field_c[42 * 3 + 0] = 0xAA;
+    field_c[42 * 3 + 1] = 0xBB;
+    field_c[42 * 3 + 2] = 0xCC;
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 2");
+    ASSERT_EQ(dirty_count, 1u, "frame 2 one dirty");
+    ASSERT_EQ(dirty_indices[0], 42u, "frame 2 dirty index 42");
+    
+    /* Frame 3: identical to frame 2 - should be unchanged */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 3");
+    ASSERT_EQ(dirty_count, 0u, "frame 3 unchanged");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_short_circuit_stale_field: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: stream order defines logical byte layout.
+ * Changing stream order across calls is caller misuse and may mark records
+ * dirty because the stored snapshot is reinterpreted under the new layout. */
+static int test_streams_order_change_marks_dirty(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    /* Asymmetric values so reordering changes the packed byte sequence. */
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 3];
+    uint8_t field_c[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 0x01;
+        field_b[i * 3 + 0] = 0x02;
+        field_b[i * 3 + 1] = 0x03;
+        field_b[i * 3 + 2] = 0x04;
+        field_c[i * 3 + 0] = 0x05;
+        field_c[i * 3 + 1] = 0x06;
+        field_c[i * 3 + 2] = 0x07;
+    }
+    
+    /* First call with [1,3,3] order */
+    smc_state_stream_t streams_first[3] = {
+        {field_a, 1, 1},
+        {field_b, 3, 3},
+        {field_c, 3, 3},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams_first, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first call [1,3,3]");
+    ASSERT_EQ(dirty_count, 100u, "first call all changed");
+    
+    /* Second call with [3,1,3] order: stored snapshot bytes are reinterpreted */
+    smc_state_stream_t streams_second[3] = {
+        {field_b, 3, 3},
+        {field_a, 1, 1},
+        {field_c, 3, 3},
+    };
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams_second, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second call [3,1,3]");
+    /* With asymmetric values, the reinterpreted layout does not match. */
+    ASSERT_EQ(dirty_count, 100u, "order change marks all records dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_order_change_marks_dirty: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: heap fallback for stream_count > 8 */
+static int test_streams_heap_fallback(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 16,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t fields[16][100];
+    smc_state_stream_t streams[16];
+    for (int s = 0; s < 16; s++) {
+        for (int i = 0; i < 100; i++) {
+            fields[s][i] = (uint8_t)(s + 1);
+        }
+        streams[s].data = fields[s];
+        streams[s].stride = 1;
+        streams[s].field_size = 1;
+    }
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 16, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "stream diff with 16 streams");
+    ASSERT_EQ(dirty_count, 100u, "all changed with heap fallback");
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 16, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second stream diff with 16 streams");
+    ASSERT_EQ(dirty_count, 0u, "unchanged with heap fallback");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_heap_fallback: PASS\n");
+    return 0;
+}
+
 int main(void) {
     if (smc_init() != SMC_OK) {
         fprintf(stderr, "FAIL: smc_init failed\n");
@@ -2512,6 +2668,9 @@ int main(void) {
     if (test_streams_clear() != 0) return 1;
     if (test_streams_no_stale_field_bug() != 0) return 1;
     if (test_streams_empty_batch() != 0) return 1;
+    if (test_streams_short_circuit_stale_field() != 0) return 1;
+    if (test_streams_order_change_marks_dirty() != 0) return 1;
+    if (test_streams_heap_fallback() != 0) return 1;
     
     smc_shutdown();
     printf("All indexed state tests passed.\n");

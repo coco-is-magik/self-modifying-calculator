@@ -593,3 +593,68 @@ For this workload, the packed `uint64_t` batch API (including packing cost) is f
 - Consider fixed-size stream kernels for 1/2/4/8 byte fields if benchmarks justify them
 - Evaluate short-circuit comparison once correctness is well proven
 - Add Python test for stream diff
+
+---
+
+## Session 14 — Stream Diff Optimization (v2.2) ✅
+
+**Date**: 2026-07-14
+
+**Completed**:
+- Optimized `smc_state_diff_indexed_streams()` in `src/c/smc_state.c`:
+  - Added short-circuit comparison: compare fields until first difference, but copy all fields when dirty to prevent stale-field bugs
+  - Added field-size specialization for 1/2/3/4/8 byte fields using direct byte access or `memcpy`-into-temporaries (C99 and unaligned-safe)
+  - Added layout-specific kernels for common ordered signatures: `[1,1,1,1,1,1,1]`, `[1,3,3]`, `[1,2,4]`
+  - Replaced per-call `malloc(stream_count * sizeof(size_t))` with a fixed `size_t offsets[8]` stack array plus heap fallback for `stream_count > 8`
+- Added `SMC_DISABLE_OPTIMIZED_STREAM_KERNELS` baseline path that preserves the original generic `memcmp`/`memcpy` implementation with no short-circuiting
+- Added `smc_static_stream_baseline` library and `test_indexed_state_baseline` / `benchmark_stream_baseline` targets in `CMakeLists.txt`
+- Added new C acceptance tests:
+  - Short-circuit stale-field prevention (change last field, verify next frame unchanged)
+  - Stream order change marks records dirty with asymmetric values
+  - Heap fallback for `stream_count > 8`
+- Updated `tests/benchmarks/benchmark_indexed_state.c` to print the kernel mode in the benchmark header
+- Updated documentation:
+  - `docs/stream-diff-plan.md`: added optimization plan, layout consistency rule, `bytes_compared` semantics, and corrected example benchmark row
+  - `docs/artifact-cache.md`: softened "avoids the cost" wording; added stream layout consistency note
+  - `docs/CHANGELOG.md`: added performance entry for stream diff optimization
+  - `docs/HANDOFF.md`: this entry
+
+**Rationale**:
+Session 13 showed the first stream diff implementation was slower than packed batch for the renderer-shaped 7-byte workload. Profiling indicated the cost was dominated by three separate `memcmp` calls per record, three `memcpy` calls per dirty record, per-stream pointer arithmetic, and no short-circuiting. The optimization preserves the public API and generality while making the internal path competitive.
+
+**Design Decisions**:
+- Public API unchanged; all optimizations are internal-only
+- Short-circuiting is safe because dirty records still copy ALL fields into the stored snapshot
+- Layout-specific kernels use ordered signatures; `[1,3,3]` and `[3,1,3]` are different layouts
+- Stream order consistency remains caller responsibility
+- `bytes_compared` remains logical bytes covered (`record_count * total_state_size`)
+
+**Benchmark Findings** (mixed 1+3+3 layout, 41,600 records, optimized vs baseline):
+
+| change_rate | baseline_stream_ms | optimized_stream_ms | packed_with_packing_ms | direct_loop_ms |
+|-------------|--------------------|---------------------|------------------------|----------------|
+| 0%          | 1.201              | 0.556               | 0.647                  | 0.526          |
+| 1%          | 1.211              | 0.549               | 0.648                  | 0.533          |
+| 10%         | 1.314              | 0.578               | 0.672                  | 0.566          |
+| 50%         | 1.818              | 0.697               | 0.783                  | 0.759          |
+| 100%        | 2.473              | 0.809               | 0.921                  | 1.014          |
+
+The optimized stream diff is:
+- ~2.1–3.1× faster than the baseline stream diff across all change rates
+- Faster than packed `uint64_t` batch including packing cost for all tested change rates
+- Close to the direct hand-written comparison loop
+
+**Current State**:
+- All 12 C tests pass via `ctest --output-on-failure` (including the new baseline test executable)
+- Pedantic compile target passes with strict `-std=c99 -pedantic`
+- Both `benchmark_indexed_state` (optimized) and `benchmark_stream_baseline` (baseline) build and run
+
+**Remaining Known Limitations**:
+- Layout-specific kernels cover only three common signatures; other layouts use the optimized generic path
+- No Python test for stream diff yet
+- Benchmark only exercises the mixed 1+3+3 SoA layout; AoS and larger layouts need measurement
+
+**Next Steps**:
+- Add Python test for stream diff
+- Measure AoS variants and larger record sizes to confirm generality
+- Consider additional layout-specific kernels if benchmarks justify them

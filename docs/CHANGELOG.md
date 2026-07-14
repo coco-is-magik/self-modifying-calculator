@@ -63,6 +63,11 @@ All notable changes to this project will be documented in this file.
 - Made LRU bookkeeping conditional on `max-size > 0` for unlimited caches.
 - Added fast paths for constants and variables in `evaluate-node-cached`, bypassing cache lookup.
 - Realistic-renderer LONG benchmark now consistently exceeds the 5× target (range 5×–8×).
+- Optimized `smc_state_diff_indexed_streams()` with short-circuit comparison,
+  field-size specialized compare/copy, layout-specific kernels for common
+  signatures (`[1,1,1,1,1,1,1]`, `[1,3,3]`, `[1,2,4]`), and stack-allocated
+  offsets with heap fallback. A baseline library compiled with
+  `SMC_DISABLE_OPTIMIZED_STREAM_KERNELS` is available for benchmarking.
 
 ## [0.1.0] - 2026-06-28
 

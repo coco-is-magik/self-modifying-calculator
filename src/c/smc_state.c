@@ -695,17 +695,342 @@ int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
 /* Indexed stream diff implementation (ABI v2.2)                              */
 /* -------------------------------------------------------------------------- */
 
-/* Generic stream diff kernel.  Compares all stream fields for each record.
- * If any field differs, the entire record is marked dirty and all fields are
- * copied into the stored snapshot.  No short-circuiting in the first
- * implementation to keep correctness obvious and stats simple. */
-static void smc_stream_kernel_generic(smc_indexed_state_table_t *table,
-                                       const smc_state_stream_t *streams,
-                                       size_t stream_count,
-                                       size_t record_count,
-                                       uint32_t *dirty_indices,
-                                       size_t dirty_capacity,
-                                       size_t *out_dirty_count) {
+#ifndef SMC_DISABLE_OPTIMIZED_STREAM_KERNELS
+
+/* Compare two byte ranges of a given size.  Uses direct byte access for 1 and
+ * 3 bytes, memcpy-into-temporaries for 2/4/8 bytes, and memcmp for other
+ * sizes.  This keeps the code strictly C99 and unaligned-safe. */
+static int smc_stream_field_changed(const unsigned char *src,
+                                     const unsigned char *slot,
+                                     size_t field_size) {
+    switch (field_size) {
+        case 0:
+            return 0;
+        case 1:
+            return *src != *slot;
+        case 2: {
+            uint16_t a, b;
+            memcpy(&a, src, 2);
+            memcpy(&b, slot, 2);
+            return a != b;
+        }
+        case 3:
+            return src[0] != slot[0] || src[1] != slot[1] || src[2] != slot[2];
+        case 4: {
+            uint32_t a, b;
+            memcpy(&a, src, 4);
+            memcpy(&b, slot, 4);
+            return a != b;
+        }
+        case 8: {
+            uint64_t a, b;
+            memcpy(&a, src, 8);
+            memcpy(&b, slot, 8);
+            return a != b;
+        }
+        default:
+            return memcmp(src, slot, field_size) != 0;
+    }
+}
+
+/* Copy a field of a given size.  Uses direct byte access for 1 and 3 bytes,
+ * memcpy for 2/4/8 bytes and generic sizes. */
+static void smc_stream_field_copy(unsigned char *dst,
+                                   const unsigned char *src,
+                                   size_t field_size) {
+    switch (field_size) {
+        case 0:
+            return;
+        case 1:
+            *dst = *src;
+            return;
+        case 2:
+        case 4:
+        case 8:
+        default:
+            memcpy(dst, src, field_size);
+            return;
+        case 3:
+            dst[0] = src[0];
+            dst[1] = src[1];
+            dst[2] = src[2];
+            return;
+    }
+}
+
+/* Optimized generic stream diff kernel.  Short-circuits comparison on the first
+ * changed field, but copies all fields when a record is dirty. */
+static void smc_stream_kernel_generic_optimized(smc_indexed_state_table_t *table,
+                                                 const smc_state_stream_t *streams,
+                                                 size_t stream_count,
+                                                 size_t record_count,
+                                                 uint32_t *dirty_indices,
+                                                 size_t dirty_capacity,
+                                                 size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    size_t total_field_size = table->state_size;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    /* Stack-allocated offsets for common small stream counts; heap fallback
+     * for larger counts. */
+    size_t local_offsets[8];
+    size_t *stream_offsets = local_offsets;
+    if (stream_count > 8) {
+        stream_offsets = (size_t *)malloc(stream_count * sizeof(size_t));
+        if (!stream_offsets) {
+            *out_dirty_count = 0;
+            return;
+        }
+    }
+    
+    size_t offset = 0;
+    for (size_t s = 0; s < stream_count; s++) {
+        stream_offsets[s] = offset;
+        offset += streams[s].field_size;
+    }
+    
+    for (size_t i = 0; i < record_count; i++) {
+        int is_changed = 0;
+        
+        if (valid[i]) {
+            /* Compare fields until first change is found. */
+            for (size_t s = 0; s < stream_count && !is_changed; s++) {
+                size_t field_size = streams[s].field_size;
+                if (field_size == 0) continue;
+                const unsigned char *src = (const unsigned char *)streams[s].data + i * streams[s].stride;
+                unsigned char *slot = slots + i * total_field_size + stream_offsets[s];
+                if (smc_stream_field_changed(src, slot, field_size)) {
+                    is_changed = 1;
+                }
+            }
+        } else {
+            /* First observation: record is changed by definition. */
+            is_changed = 1;
+        }
+        
+        if (is_changed) {
+            /* Copy all fields into stored snapshot. */
+            for (size_t s = 0; s < stream_count; s++) {
+                size_t field_size = streams[s].field_size;
+                if (field_size == 0) continue;
+                const unsigned char *src = (const unsigned char *)streams[s].data + i * streams[s].stride;
+                unsigned char *slot = slots + i * total_field_size + stream_offsets[s];
+                smc_stream_field_copy(slot, src, field_size);
+            }
+            valid[i] = 1;
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (stream_offsets != local_offsets) {
+        free(stream_offsets);
+    }
+    
+    if (table->stats) {
+        table->stats->checks += record_count;
+        table->stats->bytes_compared += record_count * total_field_size;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += record_count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+/* Specialized kernel for seven 1-byte streams.  Supports arbitrary strides. */
+static void smc_stream_kernel_7x1(smc_indexed_state_table_t *table,
+                                   const smc_state_stream_t *streams,
+                                   size_t record_count,
+                                   uint32_t *dirty_indices,
+                                   size_t dirty_capacity,
+                                   size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < record_count; i++) {
+        int is_changed = 0;
+        
+        if (valid[i]) {
+            unsigned char *slot = slots + i * 7;
+            const unsigned char *s0 = (const unsigned char *)streams[0].data + i * streams[0].stride;
+            const unsigned char *s1 = (const unsigned char *)streams[1].data + i * streams[1].stride;
+            const unsigned char *s2 = (const unsigned char *)streams[2].data + i * streams[2].stride;
+            const unsigned char *s3 = (const unsigned char *)streams[3].data + i * streams[3].stride;
+            const unsigned char *s4 = (const unsigned char *)streams[4].data + i * streams[4].stride;
+            const unsigned char *s5 = (const unsigned char *)streams[5].data + i * streams[5].stride;
+            const unsigned char *s6 = (const unsigned char *)streams[6].data + i * streams[6].stride;
+            if (s0[0] != slot[0] || s1[0] != slot[1] || s2[0] != slot[2] ||
+                s3[0] != slot[3] || s4[0] != slot[4] || s5[0] != slot[5] || s6[0] != slot[6]) {
+                is_changed = 1;
+            }
+        } else {
+            is_changed = 1;
+        }
+        
+        if (is_changed) {
+            unsigned char *slot = slots + i * 7;
+            slot[0] = *((const unsigned char *)streams[0].data + i * streams[0].stride);
+            slot[1] = *((const unsigned char *)streams[1].data + i * streams[1].stride);
+            slot[2] = *((const unsigned char *)streams[2].data + i * streams[2].stride);
+            slot[3] = *((const unsigned char *)streams[3].data + i * streams[3].stride);
+            slot[4] = *((const unsigned char *)streams[4].data + i * streams[4].stride);
+            slot[5] = *((const unsigned char *)streams[5].data + i * streams[5].stride);
+            slot[6] = *((const unsigned char *)streams[6].data + i * streams[6].stride);
+            valid[i] = 1;
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += record_count;
+        table->stats->bytes_compared += record_count * 7;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += record_count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+/* Specialized kernel for [1,3,3] ordered layout.  Supports arbitrary strides. */
+static void smc_stream_kernel_1_3_3(smc_indexed_state_table_t *table,
+                                     const smc_state_stream_t *streams,
+                                     size_t record_count,
+                                     uint32_t *dirty_indices,
+                                     size_t dirty_capacity,
+                                     size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < record_count; i++) {
+        int is_changed = 0;
+        
+        if (valid[i]) {
+            unsigned char *slot = slots + i * 7;
+            const unsigned char *s0 = (const unsigned char *)streams[0].data + i * streams[0].stride;
+            const unsigned char *s1 = (const unsigned char *)streams[1].data + i * streams[1].stride;
+            const unsigned char *s2 = (const unsigned char *)streams[2].data + i * streams[2].stride;
+            if (s0[0] != slot[0] ||
+                s1[0] != slot[1] || s1[1] != slot[2] || s1[2] != slot[3] ||
+                s2[0] != slot[4] || s2[1] != slot[5] || s2[2] != slot[6]) {
+                is_changed = 1;
+            }
+        } else {
+            is_changed = 1;
+        }
+        
+        if (is_changed) {
+            unsigned char *slot = slots + i * 7;
+            const unsigned char *s0 = (const unsigned char *)streams[0].data + i * streams[0].stride;
+            const unsigned char *s1 = (const unsigned char *)streams[1].data + i * streams[1].stride;
+            const unsigned char *s2 = (const unsigned char *)streams[2].data + i * streams[2].stride;
+            slot[0] = s0[0];
+            slot[1] = s1[0]; slot[2] = s1[1]; slot[3] = s1[2];
+            slot[4] = s2[0]; slot[5] = s2[1]; slot[6] = s2[2];
+            valid[i] = 1;
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += record_count;
+        table->stats->bytes_compared += record_count * 7;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += record_count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+/* Specialized kernel for [1,2,4] ordered layout.  Supports arbitrary strides. */
+static void smc_stream_kernel_1_2_4(smc_indexed_state_table_t *table,
+                                      const smc_state_stream_t *streams,
+                                      size_t record_count,
+                                      uint32_t *dirty_indices,
+                                      size_t dirty_capacity,
+                                      size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    for (size_t i = 0; i < record_count; i++) {
+        int is_changed = 0;
+        
+        if (valid[i]) {
+            unsigned char *slot = slots + i * 7;
+            const unsigned char *s0 = (const unsigned char *)streams[0].data + i * streams[0].stride;
+            const unsigned char *s1 = (const unsigned char *)streams[1].data + i * streams[1].stride;
+            const unsigned char *s2 = (const unsigned char *)streams[2].data + i * streams[2].stride;
+            uint16_t a1, b1;
+            uint32_t a2, b2;
+            memcpy(&a1, s1, 2);
+            memcpy(&a2, s2, 4);
+            memcpy(&b1, slot + 1, 2);
+            memcpy(&b2, slot + 3, 4);
+            if (s0[0] != slot[0] || a1 != b1 || a2 != b2) {
+                is_changed = 1;
+            }
+        } else {
+            is_changed = 1;
+        }
+        
+        if (is_changed) {
+            unsigned char *slot = slots + i * 7;
+            const unsigned char *s0 = (const unsigned char *)streams[0].data + i * streams[0].stride;
+            const unsigned char *s1 = (const unsigned char *)streams[1].data + i * streams[1].stride;
+            const unsigned char *s2 = (const unsigned char *)streams[2].data + i * streams[2].stride;
+            slot[0] = s0[0];
+            memcpy(slot + 1, s1, 2);
+            memcpy(slot + 3, s2, 4);
+            valid[i] = 1;
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    if (table->stats) {
+        table->stats->checks += record_count;
+        table->stats->bytes_compared += record_count * 7;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += record_count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+#else /* SMC_DISABLE_OPTIMIZED_STREAM_KERNELS */
+
+/* Baseline generic stream diff kernel.  Compares all stream fields for each
+ * record using memcmp/memcpy.  No short-circuiting, no field-size
+ * specialization, no layout-specific kernels.  This is the reference
+ * implementation used when SMC_DISABLE_OPTIMIZED_STREAM_KERNELS is defined. */
+static void smc_stream_kernel_baseline(smc_indexed_state_table_t *table,
+                                        const smc_state_stream_t *streams,
+                                        size_t stream_count,
+                                        size_t record_count,
+                                        uint32_t *dirty_indices,
+                                        size_t dirty_capacity,
+                                        size_t *out_dirty_count) {
     size_t changed_count = 0;
     size_t write_pos = 0;
     size_t total_field_size = table->state_size;
@@ -715,8 +1040,7 @@ static void smc_stream_kernel_generic(smc_indexed_state_table_t *table,
     /* Precompute stream offsets within each record */
     size_t *stream_offsets = (size_t *)malloc(stream_count * sizeof(size_t));
     if (!stream_offsets) {
-        /* Out of memory: report zero dirty and return.  This should not happen
-         * in normal use because stream_count is small. */
+        /* Out of memory: report zero dirty and return. */
         *out_dirty_count = 0;
         return;
     }
@@ -774,6 +1098,8 @@ static void smc_stream_kernel_generic(smc_indexed_state_table_t *table,
     *out_dirty_count = changed_count;
 }
 
+#endif /* SMC_DISABLE_OPTIMIZED_STREAM_KERNELS */
+
 int smc_indexed_state_table_diff_streams(smc_indexed_state_table_t *table,
                                           const smc_state_stream_t *streams,
                                           size_t stream_count,
@@ -827,8 +1153,35 @@ int smc_indexed_state_table_diff_streams(smc_indexed_state_table_t *table,
         return SMC_ERR_SIZE;
     }
     
-    smc_stream_kernel_generic(table, streams, stream_count, record_count,
+#ifdef SMC_DISABLE_OPTIMIZED_STREAM_KERNELS
+    smc_stream_kernel_baseline(table, streams, stream_count, record_count,
+                                dirty_indices, dirty_capacity, out_dirty_count);
+#else
+    /* Dispatch to specialized kernels for known ordered signatures. */
+    if (stream_count == 7 &&
+        streams[0].field_size == 1 && streams[1].field_size == 1 &&
+        streams[2].field_size == 1 && streams[3].field_size == 1 &&
+        streams[4].field_size == 1 && streams[5].field_size == 1 &&
+        streams[6].field_size == 1) {
+        smc_stream_kernel_7x1(table, streams, record_count,
                                dirty_indices, dirty_capacity, out_dirty_count);
+    } else if (stream_count == 3 &&
+               streams[0].field_size == 1 &&
+               streams[1].field_size == 3 &&
+               streams[2].field_size == 3) {
+        smc_stream_kernel_1_3_3(table, streams, record_count,
+                                  dirty_indices, dirty_capacity, out_dirty_count);
+    } else if (stream_count == 3 &&
+               streams[0].field_size == 1 &&
+               streams[1].field_size == 2 &&
+               streams[2].field_size == 4) {
+        smc_stream_kernel_1_2_4(table, streams, record_count,
+                                  dirty_indices, dirty_capacity, out_dirty_count);
+    } else {
+        smc_stream_kernel_generic_optimized(table, streams, stream_count, record_count,
+                                             dirty_indices, dirty_capacity, out_dirty_count);
+    }
+#endif
     
     return SMC_OK;
 }

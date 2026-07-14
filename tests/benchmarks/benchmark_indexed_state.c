@@ -146,7 +146,15 @@ int main(void) {
         states[i] = (uint32_t)i;
     }
     
-    printf("SMC indexed state benchmark\n");
+#ifdef SMC_DISABLE_OPTIMIZED_STREAM_KERNELS
+    printf("SMC indexed state benchmark (STREAM BASELINE: generic memcmp/memcpy, no short-circuit)\n");
+#else
+#ifdef SMC_DISABLE_FIXED_BATCH_KERNELS
+    printf("SMC indexed state benchmark (BATCH BASELINE: generic-only, no fixed kernels)\n");
+#else
+    printf("SMC indexed state benchmark (OPTIMIZED)\n");
+#endif
+#endif
     printf("records: %d\n", NUM_RECORDS);
     printf("state size: %d\n", STATE_SIZE);
     printf("\n");
