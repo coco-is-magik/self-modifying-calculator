@@ -69,6 +69,7 @@ __all__ = [
     "state_indexed_get_stats",
     "state_indexed_reset_stats",
     "state_diff_indexed_batch",
+    "state_diff_indexed_streams",
     "get_stats",
     "reset_stats",
     "SMCError",
@@ -121,6 +122,14 @@ class _smc_state_indexed_config_t(ctypes.Structure):
         ("count", c_size_t),
         ("state_size", c_size_t),
         ("memory_budget_bytes", c_size_t),
+    ]
+
+
+class _smc_state_stream_t(ctypes.Structure):
+    _fields_ = [
+        ("data", ctypes.c_void_p),
+        ("stride", c_size_t),
+        ("field_size", c_size_t),
     ]
 
 
@@ -311,6 +320,8 @@ class _LibSMC:
         self._lib.smc_state_indexed_reset_stats.argtypes = [ctypes.c_void_p]
         self._lib.smc_state_diff_indexed_batch.restype = c_int
         self._lib.smc_state_diff_indexed_batch.argtypes = [ctypes.c_void_p, ctypes.c_void_p, c_size_t, c_size_t, ctypes.POINTER(c_uint32), c_size_t, ctypes.POINTER(c_size_t)]
+        self._lib.smc_state_diff_indexed_streams.restype = c_int
+        self._lib.smc_state_diff_indexed_streams.argtypes = [ctypes.c_void_p, ctypes.POINTER(_smc_state_stream_t), c_size_t, c_size_t, ctypes.POINTER(c_uint32), c_size_t, ctypes.POINTER(c_size_t)]
 
         # Observability
         self._lib.smc_get_stats.restype = c_int
@@ -742,6 +753,46 @@ def state_diff_indexed_batch(ctx, states: bytes, count: int, stride: int, dirty_
     dirty_indices = (c_uint32 * dirty_capacity)() if dirty_capacity > 0 else None
     out_dirty_count = c_size_t()
     rc = lib._lib.smc_state_diff_indexed_batch(ctx._ctx if isinstance(ctx, Context) else ctx, states, count, stride, dirty_indices, dirty_capacity, ctypes.byref(out_dirty_count))
+    lib._check(rc)
+    if dirty_indices:
+        result = bytes(dirty_indices[:out_dirty_count.value])
+    else:
+        result = b""
+    return result, out_dirty_count.value
+
+
+def state_diff_indexed_streams(ctx, streams: list, record_count: int, dirty_capacity: int) -> tuple:
+    """Process a batch of indexed states described as multiple streams.
+
+    ``streams`` is a list of dictionaries with keys ``data`` (a ctypes pointer
+    or buffer), ``stride`` (int), and ``field_size`` (int).  The sum of all
+    ``field_size`` values must equal the configured ``state_size``.
+
+    Returns ``(dirty_indices_bytes, dirty_count)``.
+    """
+    lib = _LibSMC()
+    c_streams = (_smc_state_stream_t * len(streams))()
+    for i, s in enumerate(streams):
+        data = s.get("data")
+        if data is None:
+            c_streams[i].data = 0
+        elif isinstance(data, int):
+            c_streams[i].data = ctypes.c_void_p(data)
+        else:
+            c_streams[i].data = ctypes.cast(data, ctypes.c_void_p).value
+        c_streams[i].stride = s.get("stride", 0)
+        c_streams[i].field_size = s.get("field_size", 0)
+    dirty_indices = (c_uint32 * dirty_capacity)() if dirty_capacity > 0 else None
+    out_dirty_count = c_size_t()
+    rc = lib._lib.smc_state_diff_indexed_streams(
+        ctx._ctx if isinstance(ctx, Context) else ctx,
+        c_streams,
+        len(streams),
+        record_count,
+        dirty_indices,
+        dirty_capacity,
+        ctypes.byref(out_dirty_count),
+    )
     lib._check(rc)
     if dirty_indices:
         result = bytes(dirty_indices[:out_dirty_count.value])

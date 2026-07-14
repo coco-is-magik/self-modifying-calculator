@@ -225,7 +225,7 @@ typedef struct {
 } smc_state_stats_t;
 
 /* -------------------------------------------------------------------------- */
-/* Indexed-state configuration and statistics (ABI v2.1)                        */
+/* Indexed-state tracking (ABI v2.1)                                              */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
@@ -233,6 +233,13 @@ typedef struct {
     size_t state_size;          /* size of each state record in bytes */
     size_t memory_budget_bytes; /* total memory budget (0 = computed default) */
 } smc_state_indexed_config_t;
+
+/* Stream descriptor for indexed stream diff (ABI v2.2) */
+typedef struct {
+    const void *data;     /* pointer to first record; NULL if record_count == 0 or field_size == 0 */
+    size_t stride;        /* byte distance between consecutive records */
+    size_t field_size;    /* size of each field in bytes (0 for empty stream) */
+} smc_state_stream_t;
 
 typedef struct {
     uint64_t checks;
@@ -537,6 +544,40 @@ SMC_API int smc_state_diff_indexed_batch(smc_context_t *ctx,
                                           uint32_t *dirty_indices,
                                           size_t dirty_capacity,
                                           size_t *out_dirty_count);
+
+/* Process a batch of indexed states described as multiple streams.
+ *
+ * Each stream describes one field of the logical state record.  For each record
+ * index i, the bytes from each stream at index i are compared against the stored
+ * snapshot.  If any field differs, record i is marked dirty and all fields are
+ * copied into the stored snapshot.
+ *
+ * The sum of all stream.field_size values must equal the configured state_size.
+ * Mixed field sizes are allowed.  Zero-size streams are allowed only when the
+ * configured state_size is 0.
+ *
+ * Parameters:
+ *   - streams: array of stream descriptors; may be NULL only if record_count == 0
+ *   - stream_count: number of streams; must be > 0 unless record_count == 0
+ *   - record_count: number of records to process; must not exceed configured count
+ *   - dirty_indices: output array for dirty indices; may be NULL only when dirty_capacity == 0
+ *   - dirty_capacity: size of dirty_indices array
+ *   - out_dirty_count: output pointer for total count of changed records; must be non-NULL
+ *
+ * Returns:
+ *   - SMC_OK on success
+ *   - SMC_ERR_INIT if indexed state not configured
+ *   - SMC_ERR_INVALID if streams is NULL with record_count > 0, or out_dirty_count is NULL
+ *   - SMC_ERR_SIZE if record_count > configured count, stride < field_size, or
+ *     sum of field sizes does not match configured state_size
+ */
+SMC_API int smc_state_diff_indexed_streams(smc_context_t *ctx,
+                                              const smc_state_stream_t *streams,
+                                              size_t stream_count,
+                                              size_t record_count,
+                                              uint32_t *dirty_indices,
+                                              size_t dirty_capacity,
+                                              size_t *out_dirty_count);
 
 /* -------------------------------------------------------------------------- */
 /* Source generation (build-time optimizer output)                            */

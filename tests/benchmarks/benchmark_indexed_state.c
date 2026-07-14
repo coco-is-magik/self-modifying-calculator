@@ -367,6 +367,186 @@ int main(void) {
     
     smc_shutdown();
     
+    /* ---------------------------------------------------------------------- */
+    /* Stream diff comparison (v2.2)                                          */
+    /* ---------------------------------------------------------------------- */
+    printf("\nStream diff comparison (records=%d)\n", NUM_RECORDS);
+    printf("layout_type | change_rate | packed_ns/op | stream_ns/op | direct_ns/op | packed_ms | stream_ms | direct_ms\n");
+    printf("------------|-------------|--------------|--------------|--------------|-----------|-----------|----------\n");
+    
+    /* Mixed 1+3+3 layout: glyph(1) + fg(3) + bg(3) = 7 bytes */
+    {
+        uint8_t *glyphs = (uint8_t *)malloc(NUM_RECORDS);
+        uint8_t *fg = (uint8_t *)malloc(NUM_RECORDS * 3);
+        uint8_t *bg = (uint8_t *)malloc(NUM_RECORDS * 3);
+        uint64_t *packed = (uint64_t *)malloc(NUM_RECORDS * sizeof(uint64_t));
+        if (glyphs && fg && bg && packed) {
+            for (size_t i = 0; i < NUM_RECORDS; i++) {
+                glyphs[i] = (uint8_t)(i & 0xFF);
+                memset(&fg[i * 3], (uint8_t)((i + 1) & 0xFF), 3);
+                memset(&bg[i * 3], (uint8_t)((i + 2) & 0xFF), 3);
+            }
+            
+            smc_context_t *stream_ctx = smc_context_create(1);
+            if (stream_ctx) {
+                smc_state_indexed_config_t stream_config = {
+                    .count = NUM_RECORDS,
+                    .state_size = 7,
+                    .memory_budget_bytes = 0
+                };
+                if (smc_state_indexed_configure(stream_ctx, &stream_config) == SMC_OK) {
+                    for (size_t r = 0; r < CHANGE_RATE_COUNT; r++) {
+                        int change_rate = CHANGE_RATES[r];
+                        double pass_ns[3];
+                        double packed_pass_ns[3];
+                        double direct_pass_ns[3];
+                        
+                        for (int pass = 0; pass < 3; pass++) {
+                            smc_state_indexed_clear(stream_ctx);
+                            
+                            /* First observation with stream diff */
+                            size_t first_dirty = 0;
+                            smc_state_stream_t streams[3] = {
+                                {glyphs, 1, 1},
+                                {fg, 3, 3},
+                                {bg, 3, 3},
+                            };
+                            smc_state_diff_indexed_streams(stream_ctx, streams, 3, NUM_RECORDS,
+                                                            NULL, 0, &first_dirty);
+                            
+                            /* Apply change rate */
+                            if (change_rate > 0) {
+                                size_t changed = (NUM_RECORDS * (size_t)change_rate) / 100;
+                                for (size_t i = 0; i < changed; i++) {
+                                    glyphs[i] = (uint8_t)(glyphs[i] ^ 0xFF);
+                                }
+                            }
+                            
+                            /* Benchmark stream diff */
+                            uint64_t stream_start = get_ns();
+                            for (int iter = 0; iter < 100; iter++) {
+                                size_t dirty_count = 0;
+                                smc_state_stream_t streams[3] = {
+                                    {glyphs, 1, 1},
+                                    {fg, 3, 3},
+                                    {bg, 3, 3},
+                                };
+                                smc_state_diff_indexed_streams(stream_ctx, streams, 3, NUM_RECORDS,
+                                                                NULL, 0, &dirty_count);
+                                if (change_rate > 0) {
+                                    size_t changed = (NUM_RECORDS * (size_t)change_rate) / 100;
+                                    for (size_t i = 0; i < changed; i++) {
+                                        glyphs[i] = (uint8_t)(glyphs[i] ^ 0xFF);
+                                    }
+                                }
+                            }
+                            uint64_t stream_elapsed = get_ns() - stream_start;
+                            pass_ns[pass] = (double)stream_elapsed / (100.0 * NUM_RECORDS);
+                            
+                            /* Benchmark packed batch including packing cost */
+                            smc_state_indexed_clear(stream_ctx);
+                            uint64_t packed_start = get_ns();
+                            for (int iter = 0; iter < 100; iter++) {
+                                /* Packing loop cost included */
+                                for (size_t i = 0; i < NUM_RECORDS; i++) {
+                                    packed[i] =
+                                        ((uint64_t)glyphs[i] << 0)  |
+                                        ((uint64_t)fg[i * 3 + 0] << 8)  |
+                                        ((uint64_t)fg[i * 3 + 1] << 16) |
+                                        ((uint64_t)fg[i * 3 + 2] << 24) |
+                                        ((uint64_t)bg[i * 3 + 0] << 32) |
+                                        ((uint64_t)bg[i * 3 + 1] << 40) |
+                                        ((uint64_t)bg[i * 3 + 2] << 48);
+                                }
+                                size_t dirty_count = 0;
+                                smc_state_diff_indexed_batch(stream_ctx, packed, NUM_RECORDS, 8,
+                                                              NULL, 0, &dirty_count);
+                                if (change_rate > 0) {
+                                    size_t changed = (NUM_RECORDS * (size_t)change_rate) / 100;
+                                    for (size_t i = 0; i < changed; i++) {
+                                        glyphs[i] = (uint8_t)(glyphs[i] ^ 0xFF);
+                                    }
+                                }
+                            }
+                            uint64_t packed_elapsed = get_ns() - packed_start;
+                            packed_pass_ns[pass] = (double)packed_elapsed / (100.0 * NUM_RECORDS);
+                            
+                            /* Benchmark direct comparison loop baseline */
+                            uint8_t *snapshot = (uint8_t *)malloc(NUM_RECORDS * 7);
+                            if (snapshot) {
+                                for (size_t i = 0; i < NUM_RECORDS; i++) {
+                                    snapshot[i * 7 + 0] = glyphs[i];
+                                    memcpy(&snapshot[i * 7 + 1], &fg[i * 3], 3);
+                                    memcpy(&snapshot[i * 7 + 4], &bg[i * 3], 3);
+                                }
+                                uint64_t direct_start = get_ns();
+                                for (int iter = 0; iter < 100; iter++) {
+                                    size_t dirty_count = 0;
+                                    for (size_t i = 0; i < NUM_RECORDS; i++) {
+                                        int changed = 0;
+                                        if (snapshot[i * 7 + 0] != glyphs[i]) changed = 1;
+                                        if (memcmp(&snapshot[i * 7 + 1], &fg[i * 3], 3) != 0) changed = 1;
+                                        if (memcmp(&snapshot[i * 7 + 4], &bg[i * 3], 3) != 0) changed = 1;
+                                        if (changed) {
+                                            snapshot[i * 7 + 0] = glyphs[i];
+                                            memcpy(&snapshot[i * 7 + 1], &fg[i * 3], 3);
+                                            memcpy(&snapshot[i * 7 + 4], &bg[i * 3], 3);
+                                            dirty_count++;
+                                        }
+                                    }
+                                    if (change_rate > 0) {
+                                        size_t changed = (NUM_RECORDS * (size_t)change_rate) / 100;
+                                        for (size_t i = 0; i < changed; i++) {
+                                            glyphs[i] = (uint8_t)(glyphs[i] ^ 0xFF);
+                                        }
+                                    }
+                                }
+                                uint64_t direct_elapsed = get_ns() - direct_start;
+                                direct_pass_ns[pass] = (double)direct_elapsed / (100.0 * NUM_RECORDS);
+                                free(snapshot);
+                            } else {
+                                direct_pass_ns[pass] = 0.0;
+                            }
+                        }
+                        
+                        /* Median of 3 */
+                        double median_stream = pass_ns[0];
+                        if (pass_ns[1] < median_stream) median_stream = pass_ns[1];
+                        if (pass_ns[2] < median_stream) median_stream = pass_ns[2];
+                        if (pass_ns[1] > pass_ns[0] && pass_ns[1] < pass_ns[2]) median_stream = pass_ns[1];
+                        if (pass_ns[2] > pass_ns[0] && pass_ns[2] < pass_ns[1]) median_stream = pass_ns[2];
+                        
+                        double median_packed = packed_pass_ns[0];
+                        if (packed_pass_ns[1] < median_packed) median_packed = packed_pass_ns[1];
+                        if (packed_pass_ns[2] < median_packed) median_packed = packed_pass_ns[2];
+                        if (packed_pass_ns[1] > packed_pass_ns[0] && packed_pass_ns[1] < packed_pass_ns[2]) median_packed = packed_pass_ns[1];
+                        if (packed_pass_ns[2] > packed_pass_ns[0] && packed_pass_ns[2] < packed_pass_ns[1]) median_packed = packed_pass_ns[2];
+                        
+                        double median_direct = direct_pass_ns[0];
+                        if (direct_pass_ns[1] < median_direct) median_direct = direct_pass_ns[1];
+                        if (direct_pass_ns[2] < median_direct) median_direct = direct_pass_ns[2];
+                        if (direct_pass_ns[1] > direct_pass_ns[0] && direct_pass_ns[1] < direct_pass_ns[2]) median_direct = direct_pass_ns[1];
+                        if (direct_pass_ns[2] > direct_pass_ns[0] && direct_pass_ns[2] < direct_pass_ns[1]) median_direct = direct_pass_ns[2];
+                        
+                        printf("mixed_1_3_3 | %11d%% | %12.1f | %12.1f | %12.1f | %9.3f | %9.3f | %9.3f\n",
+                               change_rate,
+                               median_packed,
+                               median_stream,
+                               median_direct,
+                               median_packed * NUM_RECORDS / 1000000.0,
+                               median_stream * NUM_RECORDS / 1000000.0,
+                               median_direct * NUM_RECORDS / 1000000.0);
+                    }
+                }
+                smc_context_destroy(stream_ctx);
+            }
+        }
+        free(glyphs);
+        free(fg);
+        free(bg);
+        free(packed);
+    }
+    
     printf("\nSMC indexed state benchmark complete.\n");
     (void)sum;
     return 0;

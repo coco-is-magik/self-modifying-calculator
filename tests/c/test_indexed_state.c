@@ -1445,6 +1445,987 @@ static int test_feature_flag(void) {
     return 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Stream diff tests (ABI v2.2)                                               */
+/* -------------------------------------------------------------------------- */
+
+/* Test stream diff: first observation all changed */
+static int test_streams_first_observation(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 3,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)(i + 1);
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 2, 2},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed on first observation");
+    
+    for (size_t i = 0; i < 100; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "dirty indices in order");
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_first_observation: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: second identical call all unchanged */
+static int test_streams_same_all(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 3,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)(i + 1);
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 2, 2},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed on first observation");
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 0u, "no dirty on identical second call");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_same_all: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: one changed field marks one dirty record */
+static int test_streams_one_changed_field(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 3,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)(i + 1);
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 2, 2},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    
+    /* Change only field_a[42] */
+    field_a[42] = 0xFF;
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty record");
+    ASSERT_EQ(dirty_indices[0], 42u, "dirty index is 42");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_one_changed_field: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: multiple stream fields changed */
+static int test_streams_multiple_fields_changed(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 3];
+    uint8_t field_c[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 1;
+        memset(&field_b[i * 3], 2, 3);
+        memset(&field_c[i * 3], 3, 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {field_a, 1, 1},
+        {field_b, 3, 3},
+        {field_c, 3, 3},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed on first observation");
+    
+    /* Change field_a and field_b in record 42 */
+    field_a[42] = 99;
+    memset(&field_b[42 * 3], 99, 3);
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty record");
+    ASSERT_EQ(dirty_indices[0], 42u, "dirty index is 42");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_multiple_fields_changed: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: multiple records changed */
+static int test_streams_multiple_records_changed(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)i;
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 1, 1},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    
+    /* Change records 10, 20, 30 */
+    field_a[10] = 0xFF;
+    field_b[20] = 0xFF;
+    field_a[30] = 0xFF;
+    field_b[30] = 0xFF;
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 3u, "three dirty records");
+    ASSERT_EQ(dirty_indices[0], 10u, "first dirty index");
+    ASSERT_EQ(dirty_indices[1], 20u, "second dirty index");
+    ASSERT_EQ(dirty_indices[2], 30u, "third dirty index");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_multiple_records_changed: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: dirty indices in ascending order */
+static int test_streams_dirty_indices_ascending(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)(i ^ 0xFF);
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 1, 1},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "first stream diff");
+    
+    /* Change every 10th record */
+    for (int i = 0; i < 100; i += 10) {
+        field_a[i] = (uint8_t)(field_a[i] + 1);
+    }
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 10u, "ten dirty records");
+    
+    for (size_t i = 0; i < 10; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)(i * 10), "ascending dirty indices");
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_dirty_indices_ascending: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: capacity overflow updates all stored state */
+static int test_streams_capacity_overflow(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)i;
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 1, 1},
+    };
+    
+    uint32_t dirty_indices[5] = {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 5, &dirty_count);
+    ASSERT_OK(rc, "stream diff with capacity overflow");
+    ASSERT_EQ(dirty_count, 100u, "full dirty count reported");
+    
+    for (size_t i = 0; i < 5; i++) {
+        ASSERT_EQ(dirty_indices[i], (uint32_t)i, "partial indices written");
+    }
+    
+    /* Second identical call should be unchanged because state was stored */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second stream diff");
+    ASSERT_EQ(dirty_count, 0u, "second call unchanged");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_capacity_overflow: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: NULL streams validation */
+static int test_streams_null_streams(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, NULL, 2, 100, NULL, 0, &dirty_count);
+    if (rc != SMC_ERR_INVALID) {
+        fprintf(stderr, "FAIL: NULL streams with record_count>0 should return SMC_ERR_INVALID, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_null_streams: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: NULL stream data with zero-size field allowed */
+static int test_streams_null_data_zero_size(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 1,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {NULL, 1, 0},  /* zero-size stream, data may be NULL */
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "stream diff with zero-size stream");
+    ASSERT_EQ(dirty_count, 100u, "all changed on first observation");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_null_data_zero_size: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: zero-size stream behavior */
+static int test_streams_zero_total_size(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 0,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    smc_state_stream_t streams[2] = {
+        {NULL, 1, 0},
+        {NULL, 1, 0},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first zero-size stream diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed on first observation");
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second zero-size stream diff");
+    ASSERT_EQ(dirty_count, 0u, "all unchanged on second observation");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_zero_total_size: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: stride larger than field_size */
+static int test_streams_stride_larger(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    /* Strided arrays: field_a at offset 0, field_b at offset 2, stride 4 */
+    uint8_t buffer[100 * 4];
+    for (int i = 0; i < 100; i++) {
+        buffer[i * 4 + 0] = (uint8_t)i;
+        buffer[i * 4 + 2] = (uint8_t)(i + 1);
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {buffer + 0, 4, 1},
+        {buffer + 2, 4, 1},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "stream diff with larger stride");
+    ASSERT_EQ(dirty_count, 100u, "all changed with larger stride");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_stride_larger: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: stride smaller than field_size rejected */
+static int test_streams_stride_too_small(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    smc_state_stream_t streams[1] = {
+        {field_a, 1, 2},  /* stride 1 < field_size 2 */
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 1, 100, NULL, 0, &dirty_count);
+    if (rc != SMC_ERR_SIZE) {
+        fprintf(stderr, "FAIL: stride < field_size should return SMC_ERR_SIZE, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_stride_too_small: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: record_count too large rejected */
+static int test_streams_record_count_too_large(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 1,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[200];
+    smc_state_stream_t streams[1] = {
+        {field_a, 1, 1},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 1, 200, NULL, 0, &dirty_count);
+    if (rc != SMC_ERR_SIZE) {
+        fprintf(stderr, "FAIL: record_count > configured count should return SMC_ERR_SIZE, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_record_count_too_large: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: total field size mismatch rejected */
+static int test_streams_total_size_mismatch(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 8,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    smc_state_stream_t streams[1] = {
+        {field_a, 1, 7},  /* total field size 7 != configured 8 */
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 1, 100, NULL, 0, &dirty_count);
+    if (rc != SMC_ERR_SIZE) {
+        fprintf(stderr, "FAIL: total field size mismatch should return SMC_ERR_SIZE, got %d\n", rc);
+        return 1;
+    }
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_total_size_mismatch: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: mixed-size streams 1+3+3 */
+static int test_streams_mixed_1_3_3(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 3];
+    uint8_t field_c[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 1;
+        memset(&field_b[i * 3], 2, 3);
+        memset(&field_c[i * 3], 3, 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {field_a, 1, 1},
+        {field_b, 3, 3},
+        {field_c, 3, 3},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "mixed 1+3+3 first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    /* Change only field_b in record 50 */
+    memset(&field_b[50 * 3], 99, 3);
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "mixed 1+3+3 second diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_mixed_1_3_3: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: mixed-size streams 1+2+4 */
+static int test_streams_mixed_1_2_4(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 2];
+    uint8_t field_c[100 * 4];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 1;
+        memset(&field_b[i * 2], 2, 2);
+        memset(&field_c[i * 4], 3, 4);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {field_a, 1, 1},
+        {field_b, 2, 2},
+        {field_c, 4, 4},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "mixed 1+2+4 first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    /* Change only field_c in record 50 */
+    memset(&field_c[50 * 4], 99, 4);
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "mixed 1+2+4 second diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_mixed_1_2_4: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: seven 1-byte streams */
+static int test_streams_seven_one_byte(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t fields[7][100];
+    for (int s = 0; s < 7; s++) {
+        for (int i = 0; i < 100; i++) {
+            fields[s][i] = (uint8_t)(s + 1);
+        }
+    }
+    
+    smc_state_stream_t streams[7];
+    for (int s = 0; s < 7; s++) {
+        streams[s].data = fields[s];
+        streams[s].stride = 1;
+        streams[s].field_size = 1;
+    }
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 7, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "seven 1-byte first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    /* Change field 3 in record 50 */
+    fields[3][50] = 0xFF;
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 7, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "seven 1-byte second diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_seven_one_byte: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: AoS layout with mixed fields */
+static int test_streams_aos_mixed(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    typedef struct {
+        uint8_t glyph;
+        uint8_t fg[3];
+        uint8_t bg[3];
+    } Cell;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = sizeof(Cell),
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    Cell cells[100];
+    for (int i = 0; i < 100; i++) {
+        cells[i].glyph = (uint8_t)i;
+        memset(cells[i].fg, (uint8_t)(i + 1), 3);
+        memset(cells[i].bg, (uint8_t)(i + 2), 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {&cells[0].glyph, sizeof(Cell), 1},
+        {&cells[0].fg[0], sizeof(Cell), 3},
+        {&cells[0].bg[0], sizeof(Cell), 3},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "AoS mixed first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    cells[50].glyph = 0xFF;
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "AoS mixed second diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_aos_mixed: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: SoA layout with mixed fields */
+static int test_streams_soa_mixed(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t glyphs[100];
+    uint8_t fg[100 * 3];
+    uint8_t bg[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        glyphs[i] = (uint8_t)i;
+        memset(&fg[i * 3], (uint8_t)(i + 1), 3);
+        memset(&bg[i * 3], (uint8_t)(i + 2), 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {glyphs, 1, 1},
+        {fg, 3, 3},
+        {bg, 3, 3},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "SoA mixed first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    glyphs[50] = 0xFF;
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "SoA mixed second diff");
+    ASSERT_EQ(dirty_count, 1u, "one dirty");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_soa_mixed: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: overlapping streams behavior */
+static int test_streams_overlapping(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t data[100];
+    for (int i = 0; i < 100; i++) {
+        data[i] = (uint8_t)i;
+    }
+    
+    /* Two streams reading from the same byte */
+    smc_state_stream_t streams[2] = {
+        {data, 1, 1},
+        {data, 1, 1},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "overlapping first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    /* No changes */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "overlapping second diff");
+    ASSERT_EQ(dirty_count, 0u, "unchanged");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_overlapping: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: stats correctness */
+static int test_streams_stats(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    rc = smc_state_indexed_reset_stats(ctx);
+    ASSERT_OK(rc, "reset stats");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)i;
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 1, 1},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first diff");
+    
+    /* Change 10 records */
+    for (int i = 0; i < 100; i += 10) {
+        field_a[i] = (uint8_t)(field_a[i] + 1);
+    }
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "second diff");
+    
+    smc_state_indexed_stats_t stats;
+    rc = smc_state_indexed_get_stats(ctx, &stats);
+    ASSERT_OK(rc, "get stats");
+    ASSERT_EQ(stats.checks, 200u, "checks");
+    ASSERT_EQ(stats.changed, 110u, "changed (100 + 10)");
+    ASSERT_EQ(stats.unchanged, 90u, "unchanged");
+    ASSERT_EQ(stats.stores, 110u, "stores");
+    ASSERT_EQ(stats.bytes_compared, 400u, "bytes_compared");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_stats: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: clear/reset behavior */
+static int test_streams_clear(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = (uint8_t)i;
+        field_b[i] = (uint8_t)i;
+    }
+    
+    smc_state_stream_t streams[2] = {
+        {field_a, 1, 1},
+        {field_b, 1, 1},
+    };
+    
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "first diff");
+    ASSERT_EQ(dirty_count, 100u, "all changed");
+    
+    rc = smc_state_indexed_clear(ctx);
+    ASSERT_OK(rc, "clear");
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 2, 100, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "diff after clear");
+    ASSERT_EQ(dirty_count, 100u, "all changed after clear");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_clear: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: stale-field prevention (critical correctness) */
+static int test_streams_no_stale_field_bug(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 7,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    uint8_t field_a[100];
+    uint8_t field_b[100 * 3];
+    uint8_t field_c[100 * 3];
+    for (int i = 0; i < 100; i++) {
+        field_a[i] = 1;
+        memset(&field_b[i * 3], 2, 3);
+        memset(&field_c[i * 3], 3, 3);
+    }
+    
+    smc_state_stream_t streams[3] = {
+        {field_a, 1, 1},
+        {field_b, 3, 3},
+        {field_c, 3, 3},
+    };
+    
+    uint32_t dirty_indices[100];
+    size_t dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 1");
+    ASSERT_EQ(dirty_count, 100u, "frame 1 all changed");
+    
+    /* Frame 2: change field_a and field_b in record 42 */
+    field_a[42] = 99;
+    memset(&field_b[42 * 3], 99, 3);
+    
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 2");
+    ASSERT_EQ(dirty_count, 1u, "frame 2 one dirty");
+    ASSERT_EQ(dirty_indices[0], 42u, "frame 2 dirty index 42");
+    
+    /* Frame 3: same as frame 2 - should be unchanged */
+    dirty_count = 0;
+    rc = smc_state_diff_indexed_streams(ctx, streams, 3, 100, dirty_indices, 100, &dirty_count);
+    ASSERT_OK(rc, "frame 3");
+    ASSERT_EQ(dirty_count, 0u, "frame 3 unchanged");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_no_stale_field_bug: PASS\n");
+    return 0;
+}
+
+/* Test stream diff: empty batch */
+static int test_streams_empty_batch(void) {
+    smc_context_t *ctx = smc_context_create(1);
+    if (!ctx) return 1;
+    
+    smc_state_indexed_config_t config = {
+        .count = 100,
+        .state_size = 2,
+        .memory_budget_bytes = 0
+    };
+    int rc = smc_state_indexed_configure(ctx, &config);
+    ASSERT_OK(rc, "configure");
+    
+    size_t dirty_count = 12345;
+    rc = smc_state_diff_indexed_streams(ctx, NULL, 0, 0, NULL, 0, &dirty_count);
+    ASSERT_OK(rc, "empty batch");
+    ASSERT_EQ(dirty_count, 0u, "dirty_count is 0 for empty batch");
+    
+    smc_context_destroy(ctx);
+    printf("  test_streams_empty_batch: PASS\n");
+    return 0;
+}
+
 int main(void) {
     if (smc_init() != SMC_OK) {
         fprintf(stderr, "FAIL: smc_init failed\n");
@@ -1505,6 +2486,32 @@ int main(void) {
     if (test_generic_fallback_32_bytes() != 0) return 1;
     
     if (test_fixed_kernel_capacity_overflow() != 0) return 1;
+    
+    /* Stream diff tests */
+    if (test_streams_first_observation() != 0) return 1;
+    if (test_streams_same_all() != 0) return 1;
+    if (test_streams_one_changed_field() != 0) return 1;
+    if (test_streams_multiple_fields_changed() != 0) return 1;
+    if (test_streams_multiple_records_changed() != 0) return 1;
+    if (test_streams_dirty_indices_ascending() != 0) return 1;
+    if (test_streams_capacity_overflow() != 0) return 1;
+    if (test_streams_null_streams() != 0) return 1;
+    if (test_streams_null_data_zero_size() != 0) return 1;
+    if (test_streams_zero_total_size() != 0) return 1;
+    if (test_streams_stride_larger() != 0) return 1;
+    if (test_streams_stride_too_small() != 0) return 1;
+    if (test_streams_record_count_too_large() != 0) return 1;
+    if (test_streams_total_size_mismatch() != 0) return 1;
+    if (test_streams_mixed_1_3_3() != 0) return 1;
+    if (test_streams_mixed_1_2_4() != 0) return 1;
+    if (test_streams_seven_one_byte() != 0) return 1;
+    if (test_streams_aos_mixed() != 0) return 1;
+    if (test_streams_soa_mixed() != 0) return 1;
+    if (test_streams_overlapping() != 0) return 1;
+    if (test_streams_stats() != 0) return 1;
+    if (test_streams_clear() != 0) return 1;
+    if (test_streams_no_stale_field_bug() != 0) return 1;
+    if (test_streams_empty_batch() != 0) return 1;
     
     smc_shutdown();
     printf("All indexed state tests passed.\n");

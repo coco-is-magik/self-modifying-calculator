@@ -921,12 +921,12 @@ int smc_state_indexed_reset_stats(smc_context_t *ctx) {
 }
 
 int smc_state_diff_indexed_batch(smc_context_t *ctx,
-                                   const void *states,
-                                   size_t count,
-                                   size_t stride,
-                                   uint32_t *dirty_indices,
-                                   size_t dirty_capacity,
-                                   size_t *out_dirty_count) {
+                                    const void *states,
+                                    size_t count,
+                                    size_t stride,
+                                    uint32_t *dirty_indices,
+                                    size_t dirty_capacity,
+                                    size_t *out_dirty_count) {
     if (!ctx || !ctx->initialized) {
         smc_set_error(SMC_ERR_INIT, "invalid context");
         return SMC_ERR_INIT;
@@ -936,8 +936,29 @@ int smc_state_diff_indexed_batch(smc_context_t *ctx,
         return SMC_ERR_INIT;
     }
     return smc_indexed_state_table_diff_batch(&ctx->indexed_state_table, states,
-                                               count, stride, dirty_indices,
-                                               dirty_capacity, out_dirty_count);
+                                                count, stride, dirty_indices,
+                                                dirty_capacity, out_dirty_count);
+}
+
+int smc_state_diff_indexed_streams(smc_context_t *ctx,
+                                      const smc_state_stream_t *streams,
+                                      size_t stream_count,
+                                      size_t record_count,
+                                      uint32_t *dirty_indices,
+                                      size_t dirty_capacity,
+                                      size_t *out_dirty_count) {
+    if (!ctx || !ctx->initialized) {
+        smc_set_error(SMC_ERR_INIT, "invalid context");
+        return SMC_ERR_INIT;
+    }
+    if (!ctx->indexed_state_configured) {
+        smc_set_error(SMC_ERR_INIT, "indexed state tracker not configured");
+        return SMC_ERR_INIT;
+    }
+    return smc_indexed_state_table_diff_streams(&ctx->indexed_state_table, streams,
+                                                  stream_count, record_count,
+                                                  dirty_indices, dirty_capacity,
+                                                  out_dirty_count);
 }
 
 /* -------------------------------------------------------------------------- */

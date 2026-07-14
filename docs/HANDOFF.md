@@ -530,3 +530,66 @@ artifact update:      73.6 ns/op
 **Remaining Known Limitations**:
 - MemorySanitizer verification requires Clang (host compiler is GCC)
 - Eviction behavior depends on hash collisions; no user control over hash function
+
+---
+
+## Session 13 — Generalized Indexed Stream / SoA Diff API (v2.2) ✅
+
+**Date**: 2026-07-14
+
+**Completed**:
+- Added `smc_state_stream_t` descriptor and `smc_state_diff_indexed_streams()` public API to `include/smc.h`
+- Implemented stream diff algorithm in `src/c/smc_state.c`:
+  - Compares all stream fields for each record
+  - Copies ALL fields into stored snapshot when a record is dirty
+  - Reuses existing packed contiguous per-record storage
+  - No short-circuiting in first implementation for correctness clarity
+- Added public wrapper and validation in `src/c/smc_runtime_stub.c`
+- Added Python ctypes binding in `python/smc/__init__.py`
+- Added 24 new C acceptance tests in `tests/c/test_indexed_state.c` covering:
+  - First observation, identical second call, single and multiple field changes
+  - Ascending dirty indices, capacity overflow, NULL/validation cases
+  - Mixed-size streams (1+3+3, 1+2+4, seven 1-byte)
+  - AoS and SoA layouts, overlapping streams, stats correctness, clear/reset
+  - Total field size mismatch, zero-total-size streams, stale-field prevention
+- Created implementation plan `docs/stream-diff-plan.md`
+- Updated `docs/artifact-cache.md` with Indexed Stream Diff section
+- Updated `docs/CHANGELOG.md` with stream diff entry
+
+**Rationale**:
+Renderer profiling showed that temporary packed-state construction cost (0.481 ms/frame) exceeded the SMC batch diff cost itself (0.213 ms/frame). The stream diff API lets callers describe logical state records as multiple source arrays, eliminating the packing step while preserving SMC's generality.
+
+**Design Decisions**:
+- Mixed field sizes supported; total field size must equal configured `state_size`
+- Reuses existing `smc_state_indexed_configure()` — no separate config API
+- Reuses existing `smc_state_indexed_stats_t` counters without extension
+- All fields copied on dirty records to prevent stale-field bugs
+- Empty batch (`record_count == 0`) always valid, even with `streams == NULL`
+
+**Current State**:
+- All 11 C tests pass via `ctest --output-on-failure`
+- Stream diff tests pass alongside existing indexed batch tests
+- Pedantic compile target passes with strict `-std=c99 -pedantic`
+
+**Benchmark Findings** (mixed 1+3+3 layout, 41,600 records):
+```
+change_rate | packed_ms | stream_ms | direct_ms
+------------|-----------|-----------|----------
+          0%|     0.676 |     1.297 |     0.581
+          1%|     0.679 |     1.291 |     0.563
+         10%|     0.652 |     1.346 |     0.547
+         50%|     0.805 |     2.055 |     0.767
+        100%|     0.907 |     2.573 |     0.966
+```
+
+For this workload, the packed `uint64_t` batch API (including packing cost) is faster than the first generic stream diff implementation. The packing loop is cheap and the 8-byte fixed-size batch kernel is very efficient. The stream diff API is correct and general, but for this specific renderer-shaped workload the packed approach remains better. This validates the conservative decision not to claim performance until measured.
+
+**Remaining Known Limitations**:
+- Stream diff first implementation is slower than packed batch for the renderer-shaped 7-byte workload
+- No fixed-size stream kernels in first implementation (uses generic `memcmp`/`memcpy`)
+- Python binding requires caller to construct `_smc_state_stream_t`-compatible dictionaries
+
+**Next Steps**:
+- Consider fixed-size stream kernels for 1/2/4/8 byte fields if benchmarks justify them
+- Evaluate short-circuit comparison once correctness is well proven
+- Add Python test for stream diff

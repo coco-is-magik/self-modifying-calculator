@@ -690,3 +690,145 @@ int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
     
     return SMC_OK;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Indexed stream diff implementation (ABI v2.2)                              */
+/* -------------------------------------------------------------------------- */
+
+/* Generic stream diff kernel.  Compares all stream fields for each record.
+ * If any field differs, the entire record is marked dirty and all fields are
+ * copied into the stored snapshot.  No short-circuiting in the first
+ * implementation to keep correctness obvious and stats simple. */
+static void smc_stream_kernel_generic(smc_indexed_state_table_t *table,
+                                       const smc_state_stream_t *streams,
+                                       size_t stream_count,
+                                       size_t record_count,
+                                       uint32_t *dirty_indices,
+                                       size_t dirty_capacity,
+                                       size_t *out_dirty_count) {
+    size_t changed_count = 0;
+    size_t write_pos = 0;
+    size_t total_field_size = table->state_size;
+    unsigned char *slots = table->states;
+    uint8_t *valid = table->valid;
+    
+    /* Precompute stream offsets within each record */
+    size_t *stream_offsets = (size_t *)malloc(stream_count * sizeof(size_t));
+    if (!stream_offsets) {
+        /* Out of memory: report zero dirty and return.  This should not happen
+         * in normal use because stream_count is small. */
+        *out_dirty_count = 0;
+        return;
+    }
+    
+    size_t offset = 0;
+    for (size_t s = 0; s < stream_count; s++) {
+        stream_offsets[s] = offset;
+        offset += streams[s].field_size;
+    }
+    
+    for (size_t i = 0; i < record_count; i++) {
+        int is_changed = 0;
+        
+        if (valid[i]) {
+            /* Compare all fields against stored snapshot */
+            for (size_t s = 0; s < stream_count; s++) {
+                if (streams[s].field_size == 0) continue;
+                const unsigned char *src = (const unsigned char *)streams[s].data + i * streams[s].stride;
+                unsigned char *slot = slots + i * total_field_size + stream_offsets[s];
+                if (memcmp(src, slot, streams[s].field_size) != 0) {
+                    is_changed = 1;
+                }
+            }
+        } else {
+            /* First observation: record is changed by definition */
+            is_changed = 1;
+        }
+        
+        if (is_changed) {
+            /* Copy all fields into stored snapshot */
+            for (size_t s = 0; s < stream_count; s++) {
+                if (streams[s].field_size == 0) continue;
+                const unsigned char *src = (const unsigned char *)streams[s].data + i * streams[s].stride;
+                unsigned char *slot = slots + i * total_field_size + stream_offsets[s];
+                memcpy(slot, src, streams[s].field_size);
+            }
+            valid[i] = 1;
+            changed_count++;
+            if (write_pos < dirty_capacity && dirty_indices != NULL) {
+                dirty_indices[write_pos++] = (uint32_t)i;
+            }
+        }
+    }
+    
+    free(stream_offsets);
+    
+    if (table->stats) {
+        table->stats->checks += record_count;
+        table->stats->bytes_compared += record_count * total_field_size;
+        table->stats->changed += changed_count;
+        table->stats->unchanged += record_count - changed_count;
+        table->stats->stores += changed_count;
+    }
+    
+    *out_dirty_count = changed_count;
+}
+
+int smc_indexed_state_table_diff_streams(smc_indexed_state_table_t *table,
+                                          const smc_state_stream_t *streams,
+                                          size_t stream_count,
+                                          size_t record_count,
+                                          uint32_t *dirty_indices,
+                                          size_t dirty_capacity,
+                                          size_t *out_dirty_count) {
+    if (!table || !table->configured) {
+        return SMC_ERR_INIT;
+    }
+    if (!out_dirty_count) {
+        return SMC_ERR_INVALID;
+    }
+    if (dirty_indices == NULL && dirty_capacity > 0) {
+        return SMC_ERR_INVALID;
+    }
+    if (record_count > table->count) {
+        return SMC_ERR_SIZE;
+    }
+    
+    /* Empty batch is always valid */
+    if (record_count == 0) {
+        *out_dirty_count = 0;
+        return SMC_OK;
+    }
+    
+    if (stream_count == 0) {
+        return SMC_ERR_INVALID;
+    }
+    if (streams == NULL) {
+        return SMC_ERR_INVALID;
+    }
+    
+    /* Validate streams and compute total field size */
+    size_t total_field_size = 0;
+    for (size_t s = 0; s < stream_count; s++) {
+        if (streams[s].field_size == 0) {
+            continue;
+        }
+        if (streams[s].stride == 0) {
+            return SMC_ERR_INVALID;
+        }
+        if (streams[s].stride < streams[s].field_size) {
+            return SMC_ERR_SIZE;
+        }
+        total_field_size += streams[s].field_size;
+    }
+    
+    /* Total field size must match configured state size */
+    if (total_field_size != table->state_size) {
+        return SMC_ERR_SIZE;
+    }
+    
+    smc_stream_kernel_generic(table, streams, stream_count, record_count,
+                               dirty_indices, dirty_capacity, out_dirty_count);
+    
+    return SMC_OK;
+}

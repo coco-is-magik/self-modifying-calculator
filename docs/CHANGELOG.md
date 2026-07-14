@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Generalized indexed stream / SoA diff API: `smc_state_diff_indexed_streams()` in `include/smc.h`, with mixed field sizes, AoS/SoA layout support, and validation in `src/c/smc_state.c` and `src/c/smc_runtime_stub.c`.
+- Python ctypes binding for `smc_state_diff_indexed_streams()` in `python/smc/__init__.py`.
+- Comprehensive C acceptance tests for stream diffing in `tests/c/test_indexed_state.c` covering first observation, unchanged paths, mixed-size streams, AoS/SoA layouts, capacity overflow, validation, and stale-field prevention.
+- Implementation plan document `docs/stream-diff-plan.md`.
 - C API maturity plan in `docs/c-api-maturity-plan.md`, organized into eight phases to be implemented one at a time.
 - Formal ABI contract in `docs/abi-contract.md` covering versioning, struct layout, ownership, null-pointer behavior, pre-init rules, thread safety, and error codes.
 - Header `include/smc.h` rewritten with explicit ABI contract comments, `@tooling`/`@production` tier labels, and new error codes (`SMC_ERR_ABI`, `SMC_ERR_ARITY`, `SMC_ERR_NOT_FOUND`, `SMC_ERR_THREAD`, `SMC_ERR_SHUTDOWN`).

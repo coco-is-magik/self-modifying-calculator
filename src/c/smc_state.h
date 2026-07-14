@@ -93,11 +93,20 @@ int smc_indexed_state_table_clear(smc_indexed_state_table_t *table);
 
 /* Process a batch of indexed states. Returns SMC_OK. */
 int smc_indexed_state_table_diff_batch(smc_indexed_state_table_t *table,
-                                        const void *states,
-                                        size_t count,
-                                        size_t stride,
-                                        uint32_t *dirty_indices,
-                                        size_t dirty_capacity,
-                                        size_t *out_dirty_count);
+                                         const void *states,
+                                         size_t count,
+                                         size_t stride,
+                                         uint32_t *dirty_indices,
+                                         size_t dirty_capacity,
+                                         size_t *out_dirty_count);
+
+/* Process a batch of indexed states described as multiple streams. Returns SMC_OK. */
+int smc_indexed_state_table_diff_streams(smc_indexed_state_table_t *table,
+                                            const smc_state_stream_t *streams,
+                                            size_t stream_count,
+                                            size_t record_count,
+                                            uint32_t *dirty_indices,
+                                            size_t dirty_capacity,
+                                            size_t *out_dirty_count);
 
 #endif /* SMC_STATE_H */

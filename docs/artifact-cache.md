@@ -286,15 +286,92 @@ Typical benchmark results for 41,600 records with 8-byte state structs:
 
 The indexed unchanged path is typically 6-10x faster than the generic path. The batch path provides additional speedup by reducing per-call overhead.
 
-## 9. Optimized Fixed-Size Batch Kernels (v2.2)
+## 9. Indexed Stream Diff (v2.2)
+
+For callers whose source data is already split into separate arrays or fields,
+the stream diff API avoids the cost of building a temporary packed state array.
+
+### 9.1 When to Use Stream Diff
+
+Use `smc_state_diff_indexed_streams()` when:
+- Your state is already stored as separate arrays (SoA) or non-contiguous struct fields (AoS)
+- Building a temporary `uint64_t` packed array is measurable overhead
+- Field sizes are mixed or not a power of two
+
+Continue using `smc_state_diff_indexed_batch()` when:
+- You already have a packed contiguous array
+- State fits naturally in 1, 2, 4, or 8 bytes (fixed-size kernels apply)
+- Packing cost is negligible or already amortized
+
+### 9.2 Stream Descriptor
+
+```c
+typedef struct {
+    const void *data;
+    size_t stride;
+    size_t field_size;
+} smc_state_stream_t;
+```
+
+- `data` — pointer to the first record of this field
+- `stride` — byte distance between consecutive records
+- `field_size` — number of bytes contributed by this field
+
+The sum of all `field_size` values must equal the configured `state_size`.
+
+### 9.3 Example: Struct-of-Arrays
+
+```c
+uint8_t glyphs[41600];
+uint8_t fg[41600 * 3];
+uint8_t bg[41600 * 3];
+
+smc_state_stream_t streams[3] = {
+    {glyphs, 1, 1},
+    {fg,     3, 3},
+    {bg,     3, 3},
+};
+
+size_t dirty_count = 0;
+smc_state_diff_indexed_streams(ctx, streams, 3, 41600,
+                                dirty_indices, capacity, &dirty_count);
+```
+
+### 9.4 Example: Array-of-Structs
+
+```c
+typedef struct {
+    uint8_t glyph;
+    uint8_t fg[3];
+    uint8_t bg[3];
+} Cell;
+
+Cell cells[41600];
+
+smc_state_stream_t streams[3] = {
+    {&cells[0].glyph, sizeof(Cell), 1},
+    {&cells[0].fg[0], sizeof(Cell), 3},
+    {&cells[0].bg[0], sizeof(Cell), 3},
+};
+```
+
+### 9.5 Semantics
+
+- Record `i` maps to indexed slot `i`
+- A record is dirty if any field differs from the stored snapshot
+- When a record is dirty, ALL fields are copied into the stored snapshot
+- Dirty indices are returned in ascending order
+- `dirty_capacity` overflow writes partial indices but reports the full count
+
+## 10. Optimized Fixed-Size Batch Kernels (v2.2)
 
 The batch API (`smc_state_diff_indexed_batch`) includes optimized internal kernels for common small state sizes: 1, 2, 4, and 8 bytes. These kernels use `memcpy`-based loads and stores so they remain safe for unaligned input and strictly conforming C99. They are treated as performance candidates; any size that does not beat the generic `memcmp`/`memcpy` baseline by at least 5% falls back to the generic path.
 
-### 9.1 When Kernels Help
+### 10.1 When Kernels Help
 
 Power-of-two sizes (1, 2, 4, and 8 bytes) benefit because the compiler can reduce the comparison to a single integer equality check. The 16-byte candidate was evaluated but did not meet the 5% improvement threshold reliably, so it uses the generic fallback. Non-power-of-two sizes such as 7 or 12 bytes also use the generic byte-by-byte fallback.
 
-### 9.2 Recommended State Representation
+### 10.2 Recommended State Representation
 
 Pass compact, deterministic state values such as `uint64_t` arrays. Avoid padded structs with uninitialized padding bytes, because padding can cause false-positive change detection.
 
@@ -329,7 +406,7 @@ This representation:
 - Eliminates padding-related false positives.
 - Keeps the comparison as a single integer operation.
 
-### 9.3 Measuring Kernel Performance
+### 10.3 Measuring Kernel Performance
 
 Build both the fixed-kernel and generic-only benchmark targets:
 
@@ -342,6 +419,6 @@ cmake --build build --target benchmark_indexed_state benchmark_indexed_baseline
 
 Both executables run the same public API benchmark. The baseline executable links against a library built with `SMC_DISABLE_FIXED_BATCH_KERNELS`, so it always uses the generic `memcmp`/`memcpy` path. Each executable reports median ns/op across 3 internal passes. Compare the two outputs to measure the improvement of the fixed-size kernels against the real public API baseline.
 
-### 9.4 Generality Guarantee
+### 10.4 Generality Guarantee
 
 The public API is unchanged. Arbitrary state sizes continue to use the generic `memcmp`/`memcpy` fallback. The fixed-size kernels are an internal optimization and do not affect portability, alignment safety, or API semantics.
